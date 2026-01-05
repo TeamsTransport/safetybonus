@@ -7,10 +7,10 @@ services:
     container_name: safe-drive-db
     restart: always
     environment:
-      MARIADB_ROOT_PASSWORD: root_password
-      MARIADB_DATABASE: driver_safety
-      MARIADB_USER: safety_user
-      MARIADB_PASSWORD: safety_password
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
