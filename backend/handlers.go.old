@@ -1,3 +1,4 @@
+
 // handlers.go
 package main
 
@@ -314,7 +315,7 @@ func getDriverStats(c *gin.Context) {
         FROM safety_events WHERE driver_id=?`, id)
 
     var count int
-    var totalBonus, totalPI int
+    var totalBonus, totalPI float64
     if err := row.Scan(&count, &totalBonus, &totalPI); err != nil {
         c.JSON(http.StatusInternalServerError, APIError{Message: err.Error()})
         return

@@ -1,4 +1,3 @@
-
 // models.go
 package main
 
@@ -36,10 +35,10 @@ type SafetyCategory struct {
 }
 
 type ScoreCardItem struct {
-    ScCategoryID  int   `json:"sc_category_id"`
-    ScCategory    string`json:"sc_category"`    // 'SAFETY' | 'MAINTENANCE' | 'DISPATCH'
-    ScDescription string`json:"sc_description"`
-    DriverTypeID  *int  `json:"driver_type_id"` // null for global
+    ScCategoryID  int    `json:"sc_category_id"`
+    ScCategory    string `json:"sc_category"`    // 'SAFETY' | 'MAINTENANCE' | 'DISPATCH'
+    ScDescription string `json:"sc_description"`
+    DriverTypeID  *int   `json:"driver_type_id"` // null for global
 }
 
 type SafetyEvent struct {
