@@ -1,0 +1,86 @@
+
+# docker-compose.override.yml
+# Adds dev-friendly settings on top of docker-compose.yml.
+# - Frontend runs Vite dev server (hot reload) on port 3000.
+# - Backend runs `go run` with live code mounting.
+# Activate with: `docker compose --profile dev up -d`
+
+version: "3.8"
+
+services:
+  # --- MariaDB tweaks (optional) ---
+  db:
+    # Keep base image/environment from docker-compose.yml
+    # Add a small log config and helpful restart policy for dev
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --- Backend: live dev profile ---
+  backend:
+    # Use a golang image directly for dev so we can `go run` mounted source
+    profiles: ["dev"]
+    image: golang:1.24-alpine
+    container_name: safe-drive-api-dev
+    working_dir: /app
+    depends_on:
+      - db
+    # Map your local backend sources into the container
+    volumes:
+      - ./backend:/app
+      # pass through your local git config if you like (optional)
+      # - ~/.gitconfig:/root/.gitconfig:ro
+    environment:
+      API_PORT: "${API_PORT}"
+      DB_DSN: "${DB_DSN}"
+      TZ: "America/Winnipeg"
+    command: >
+      sh -c "
+        apk add --no-cache git &&
+        go mod download &&
+        go run ./main.go
+      "
+    ports:
+      - "${API_PORT}:8080"
+    # Faster restarts in dev; keep logs small
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --- Frontend: Vite dev server profile ---
+  frontend:
+    profiles: ["dev"]
+    image: node:20-alpine
+    container_name: safe-drive-ui-dev
+    working_dir: /app
+    depends_on:
+      - backend
+    # Mount the frontend sources and node_modules for faster installs/caches
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      # Vite uses this to call the API from the browser
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL}"
+      # For clarity in dev logs
+      NODE_ENV: development
+    command: >
+      sh -c "
+        if [ -f package-lock.json ]; then npm ci --no-fund --no-audit;
+        else npm install --no-fund --no-audit; fi &&
+        npm run dev -- --host --port 3000
+      "
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
