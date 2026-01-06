@@ -5,6 +5,7 @@ import { DriverType } from '../types';
 const DriverTypeSetup = () => {
   // Sync local state with the store's data
   const [types, setTypes] = useState<DriverType[]>(db.driverTypes);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingType, setEditingType] = useState<DriverType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState<Omit<DriverType, 'driver_type_id'>>({
