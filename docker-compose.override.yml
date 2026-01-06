@@ -28,8 +28,9 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
-    environment:
-      VITE_API_BASE_URL: "http://localhost:${API_PORT}"
+environment:
+    # VITE_API_BASE_URL: "http://localhost:${API_PORT}"
+    VITE_API_BASE_URL: "http://localhost:${API_PORT}/api"
       CHOKIDAR_USEPOLLING: "true"
     command: >
       sh -c "
