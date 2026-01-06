@@ -6,6 +6,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev  # Separate dev Dockerfile
+    tty: true  
     volumes:
       - ./backend:/app
       - backend_go_cache:/go
@@ -13,10 +14,7 @@ services:
     environment:
       DB_DSN: "${DB_USER}:${DB_PASSWORD}@tcp(db:3306)/${DB_NAME}?parseTime=true"
       GIN_MODE: debug
-    command: >
-      sh -c "
-        go mod download
-      "
+    command: go mod download
     ports:
       - "${API_PORT}:8080"
 
