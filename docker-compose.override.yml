@@ -5,8 +5,7 @@ services:
     container_name: safe-drive-api-dev
     build:
       context: ./backend
-      dockerfile: Dockerfile.dev  # Separate dev Dockerfile
-    tty: true  
+      dockerfile: Dockerfile.dev  # Separate dev Dockerfile 
     volumes:
       - ./backend:/app
       - backend_go_cache:/go
@@ -14,7 +13,9 @@ services:
     environment:
       DB_DSN: "${DB_USER}:${DB_PASSWORD}@tcp(db:3306)/${DB_NAME}?parseTime=true"
       GIN_MODE: debug
-    command: go mod download
+    command: sh -c "ls -la && go mod download && go run ."
+    tty: true
+    stdin_open: true
     ports:
       - "${API_PORT}:8080"
 

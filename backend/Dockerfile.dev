@@ -1,8 +1,9 @@
 FROM golang:1.25-alpine
 WORKDIR /app
-RUN apk add --no-cache git
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
+
+# Install git and build-base in case any dependencies need CGO or git
+RUN apk add --no-cache git build-base
 EXPOSE 8080
+
+# We leave the CMD empty or as a default because the override will provide it
 CMD ["go", "run", "."]
