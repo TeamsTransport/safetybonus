@@ -1,7 +1,4 @@
-
-// dbStore.ts — Production-ready client-side store bound to Go API (MariaDB)
-// No LocalStorage usage. All operations sync with backend and keep an in-memory cache.
-
+// dbStore.ts — Production-ready reactive client-side store bound to Go API
 import {
   Truck,
   Driver,
@@ -14,8 +11,9 @@ import {
 } from '../types';
 
 type Id = number;
+type Listener = () => void;
 
-// Centralized HTTP client with robust error handling, timeouts, and JSON typing
+// Centralized HTTP client
 class HttpClient {
   private baseUrl: string;
   private token?: string;
@@ -54,85 +52,58 @@ class HttpClient {
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        throw new Error(
-          `HTTP ${res.status} ${res.statusText} for ${path}${text ? ` — ${text}` : ''}`,
-        );
+        throw new Error(`HTTP ${res.status} ${res.statusText} for ${path}${text ? ` — ${text}` : ''}`);
       }
 
-      // If server returns no content (204), return undefined as T
       if (res.status === 204) return undefined as T;
-
-      // Some DELETE endpoints may return a JSON payload/confirmation
-      const data = (await res.json()) as T;
-      return data;
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        throw new Error(`Request timed out for ${path}`);
-      }
-      throw err;
+      return (await res.json()) as T;
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  get<T>(path: string, opts?: { timeoutMs?: number }) {
-    return this.request<T>('GET', path, undefined, opts);
-  }
-  post<T>(path: string, body: unknown, opts?: { timeoutMs?: number }) {
-    return this.request<T>('POST', path, body, opts);
-  }
-  put<T>(path: string, body: unknown, opts?: { timeoutMs?: number }) {
-    return this.request<T>('PUT', path, body, opts);
-  }
-  patch<T>(path: string, body: unknown, opts?: { timeoutMs?: number }) {
-    return this.request<T>('PATCH', path, body, opts);
-  }
-  delete<T>(path: string, opts?: { timeoutMs?: number }) {
-    return this.request<T>('DELETE', path, undefined, opts);
-  }
+  get<T>(path: string) { return this.request<T>('GET', path); }
+  post<T>(path: string, body: unknown) { return this.request<T>('POST', path, body); }
+  put<T>(path: string, body: unknown) { return this.request<T>('PUT', path, body); }
+  delete<T>(path: string) { return this.request<T>('DELETE', path); }
 }
 
 export class DBStore {
-  // In-memory caches (kept in sync with server)
+  // In-memory caches
   trucks: Truck[] = [];
   truckHistory: TruckHistoryEvent[] = [];
   driverTypes: DriverType[] = [];
   drivers: Driver[] = [];
   safetyCategories: SafetyCategory[] = [];
-  scoreCard: ScoreCardItem[] = []; // a.k.a. "scorecard metrics"
+  scoreCard: ScoreCardItem[] = [];
   safetyEvents: SafetyEvent[] = [];
   scoreCardEvents: ScoreCardEvent[] = [];
 
   private http: HttpClient;
+  private listeners: Set<Listener> = new Set();
 
   constructor() {
-    const base =
-      import.meta.env?.VITE_API_BASE_URL?.toString() || 'http://localhost:8080/api';
+    const base = import.meta.env?.VITE_API_BASE_URL?.toString() || 'http://localhost:8080/api';
     this.http = new HttpClient(base);
   }
 
-  /** Optional: wire an auth token (if your Go API requires it). */
-  setAuthToken(token?: string) {
-    this.http.setAuthToken(token);
+  // --- REACTIVE SUBSCRIPTION SYSTEM ---
+  subscribe(listener: Listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
-  /** Initial bootstrap: try /bootstrap then fall back to individual endpoints. */
+  private notify() {
+    this.listeners.forEach((l) => l());
+  }
+
+  // --- INITIALIZATION ---
   async init(): Promise<void> {
     try {
-      // Prefer unified bootstrap if your server supports it
       const data = await this.http.get<Partial<DBStore>>('/bootstrap');
       this.applyBootstrap(data);
     } catch {
-      // Fallback to individual resource loads
-      const [
-        trucks,
-        driverTypes,
-        drivers,
-        safetyCategories,
-        scoreCard,
-        safetyEvents,
-        scoreCardEvents,
-      ] = await Promise.all([
+      const [trucks, dTypes, drvs, cats, sc, se, sce] = await Promise.all([
         this.http.get<Truck[]>('/trucks'),
         this.http.get<DriverType[]>('/driver-types'),
         this.http.get<Driver[]>('/drivers'),
@@ -143,369 +114,103 @@ export class DBStore {
       ]);
 
       this.trucks = trucks ?? [];
-      this.driverTypes = driverTypes ?? [];
-      this.drivers = drivers ?? [];
-      this.safetyCategories = safetyCategories ?? [];
-      this.scoreCard = scoreCard ?? [];
-      this.safetyEvents = safetyEvents ?? [];
-      this.scoreCardEvents = scoreCardEvents ?? [];
+      this.driverTypes = dTypes ?? [];
+      this.drivers = drvs ?? [];
+      this.safetyCategories = cats ?? [];
+      this.scoreCard = sc ?? [];
+      this.safetyEvents = se ?? [];
+      this.scoreCardEvents = sce ?? [];
     }
+    this.notify(); // Ensure UI updates once loading is complete
   }
 
   private applyBootstrap(data: Partial<DBStore>) {
     this.trucks = data.trucks ?? [];
-    this.truckHistory = data.truckHistory ?? [];
     this.driverTypes = data.driverTypes ?? [];
     this.drivers = data.drivers ?? [];
     this.safetyCategories = data.safetyCategories ?? [];
     this.scoreCard = data.scoreCard ?? [];
     this.safetyEvents = data.safetyEvents ?? [];
     this.scoreCardEvents = data.scoreCardEvents ?? [];
+    this.notify();
   }
 
-  // ------------------------
-  // DRIVERS
-  // ------------------------
-  async addDriver(input: Omit<Driver, 'driver_id'>): Promise<Driver> {
-    const created = await this.http.post<Driver>('/drivers', input);
-    this.drivers = upsertById(this.drivers, created, 'driver_id');
-    return created;
-  }
-
-  async updateDriver(driver: Driver): Promise<Driver> {
-    const updated = await this.http.put<Driver>(`/drivers/${driver.driver_id}`, driver);
-    this.drivers = upsertById(this.drivers, updated, 'driver_id');
-    return updated;
-  }
-
-  async deleteDriver(id: Id): Promise<void> {
-    await this.http.delete<void>(`/drivers/${id}`);
-    this.drivers = this.drivers.filter((d) => d.driver_id !== id);
-  }
-
-  getDriver(id: Id): Driver | undefined {
-    return this.drivers.find((d) => d.driver_id === id);
-  }
-
-  listDrivers(): Driver[] {
-    return [...this.drivers];
-  }
-
-  // ------------------------
-  // TRUCKS & ASSIGNMENTS
-  // ------------------------
-  async addTruck(input: Omit<Truck, 'truck_id'>): Promise<Truck> {
-    const created = await this.http.post<Truck>('/trucks', input);
-    this.trucks = upsertById(this.trucks, created, 'truck_id');
-    return created;
-  }
-
-  async updateTruck(truck: Truck): Promise<Truck> {
-    const updated = await this.http.put<Truck>(`/trucks/${truck.truck_id}`, truck);
-    this.trucks = upsertById(this.trucks, updated, 'truck_id');
-    return updated;
-  }
-
-  async deleteTruck(id: Id): Promise<void> {
-    await this.http.delete<void>(`/trucks/${id}`);
-    // Clear local assignments for this truck
-    this.drivers = this.drivers.map((d) =>
-      d.truck_id === id ? { ...d, truck_id: null } : d,
-    );
-    this.trucks = this.trucks.filter((t) => t.truck_id !== id);
-  }
-
-  /**
-   * Assign a driver to a truck (or unassign by passing driverId = null).
-   * First tries a dedicated API endpoint; otherwise falls back to updating
-   * driver.truck_id and truck.status via PUT operations.
-   */
-  async assignDriverToTruck(
-    driverId: Id | null,
-    truckId: Id,
-  ): Promise<{ driver?: Driver; truck: Truck }> {
-    // Try dedicated endpoint
-    try {
-      const result = await this.http.post<{ driver?: Driver; truck: Truck }>(
-        `/trucks/${truckId}/assign-driver`,
-        { driverId },
-      );
-      if (result.driver) {
-        this.drivers = upsertById(this.drivers, result.driver, 'driver_id');
-      }
-      this.trucks = upsertById(this.trucks, result.truck, 'truck_id');
-      // Ensure only one driver points at this truck locally
-      this.drivers = this.drivers.map((d) =>
-        d.driver_id !== result.driver?.driver_id && d.truck_id === truckId
-          ? { ...d, truck_id: null }
-          : d,
-      );
-      return result;
-    } catch {
-      // Fallback: perform the linkage via normal updates
-      const truck = this.trucks.find((t) => t.truck_id === truckId);
-      if (!truck) throw new Error(`Truck ${truckId} not found`);
-
-      // Remove any existing driver on this truck
-      const prevDriverOnTruck = this.drivers.find((d) => d.truck_id === truckId);
-      if (prevDriverOnTruck) {
-        const cleared = await this.updateDriver({ ...prevDriverOnTruck, truck_id: null });
-        this.drivers = upsertById(this.drivers, cleared, 'driver_id');
-      }
-
-      let updatedDriver: Driver | undefined;
-      let updatedTruck: Truck;
-
-      if (driverId !== null) {
-        const driver = this.getDriver(driverId);
-        if (!driver) throw new Error(`Driver ${driverId} not found`);
-        updatedDriver = await this.updateDriver({ ...driver, truck_id: truckId });
-        updatedTruck = await this.updateTruck({ ...truck, status: 'assigned' });
-      } else {
-        updatedTruck = await this.updateTruck({ ...truck, status: 'available' });
-      }
-
-      // Local normalization
-      if (updatedDriver) {
-        this.drivers = upsertById(this.drivers, updatedDriver, 'driver_id');
-      }
-      this.trucks = upsertById(this.trucks, updatedTruck, 'truck_id');
-
-      return { driver: updatedDriver, truck: updatedTruck };
-    }
-  }
-
-  // ------------------------
-  // SAFETY EVENTS
-  // ------------------------
-  async addSafetyEvent(input: Omit<SafetyEvent, 'safety_event_id'>): Promise<SafetyEvent> {
-    const created = await this.http.post<SafetyEvent>('/safety-events', input);
-    this.safetyEvents = upsertById(this.safetyEvents, created, 'safety_event_id');
-    return created;
-  }
-
-  async updateSafetyEvent(event: SafetyEvent): Promise<SafetyEvent> {
-    const updated = await this.http.put<SafetyEvent>(
-      `/safety-events/${event.safety_event_id}`,
-      event,
-    );
-    this.safetyEvents = upsertById(this.safetyEvents, updated, 'safety_event_id');
-    return updated;
-  }
-
-  async deleteSafetyEvent(id: Id): Promise<void> {
-    await this.http.delete<void>(`/safety-events/${id}`);
-    this.safetyEvents = this.safetyEvents.filter((e) => e.safety_event_id !== id);
-  }
-
-  // ------------------------
-  // SCORECARD METRICS (ITEMS)
-  // ------------------------
-  async addScoreCardItem(
-    input: Omit<ScoreCardItem, 'sc_category_id'>,
-  ): Promise<ScoreCardItem> {
-    const created = await this.http.post<ScoreCardItem>('/scorecard-metrics', input);
-    this.scoreCard = upsertById(this.scoreCard, created, 'sc_category_id');
-    return created;
-  }
-
-  async updateScoreCardItem(item: ScoreCardItem): Promise<ScoreCardItem> {
-    const updated = await this.http.put<ScoreCardItem>(
-      `/scorecard-metrics/${item.sc_category_id}`,
-      item,
-    );
-    this.scoreCard = upsertById(this.scoreCard, updated, 'sc_category_id');
-    return updated;
-  }
-
-  async deleteScoreCardItem(id: Id): Promise<void> {
-    await this.http.delete<void>(`/scorecard-metrics/${id}`);
-    this.scoreCard = this.scoreCard.filter((i) => i.sc_category_id !== id);
-  }
-
-  // ------------------------
-  // SCORECARD EVENTS
-  // ------------------------
-  /**
-   * Upsert a scorecard event. If scorecard_event_id exists, PUT; otherwise POST.
-   * Your UI calls this as saveScoreCardEvent.
-   */
-  async saveScoreCardEvent(input: ScoreCardEvent | Omit<ScoreCardEvent, 'scorecard_event_id'>) {
-    const hasId = 'scorecard_event_id' in input && input.scorecard_event_id !== undefined;
-    const endpoint = '/scorecard-events';
-    const saved = hasId
-      ? await this.http.put<ScoreCardEvent>(`${endpoint}/${(input as ScoreCardEvent).scorecard_event_id}`, input)
-      : await this.http.post<ScoreCardEvent>(endpoint, input);
-
-    this.scoreCardEvents = upsertById(this.scoreCardEvents, saved, 'scorecard_event_id');
-    return saved;
-  }
-
-  /**
-   * Fetch scorecard events for a driver, filtered by day/month prefix and category.
-   * Mirrors the helper you had in the old store.
-   */
-  getScoreCardEvents(driverId: Id, datePrefix: string, category: string): ScoreCardEvent[] {
-    const validMetricIds = this.scoreCard
-      .filter((m) => m.sc_category === category)
-      .map((m) => m.sc_category_id);
-
-    return this.scoreCardEvents.filter(
-      (e) =>
-        e.driver_id === driverId &&
-        e.event_date.startsWith(datePrefix) &&
-        validMetricIds.includes(e.sc_category_id),
-    );
-  }
-
-  /**
-   * Delete all scorecard events for a driver on a given prefix+category.
-   * Tries consolidated server-side delete; if not available, iterates DELETE by id.
-   */
-  async deleteScoreCardEvents(driverId: Id, datePrefix: string, category: string): Promise<void> {
-    try {
-      await this.http.delete<void>(
-        `/scorecard-events?driverId=${encodeURIComponent(driverId)}&datePrefix=${encodeURIComponent(
-          datePrefix,
-        )}&category=${encodeURIComponent(category)}`,
-      );
-      // Refresh cache for scorecard events from server (optional optimization: lazy prune)
-      const fresh = await this.http.get<ScoreCardEvent[]>('/scorecard-events');
-      this.scoreCardEvents = fresh ?? [];
-    } catch {
-      // Fallback: prune locally + individual deletes
-      const toDelete = this.getScoreCardEvents(driverId, datePrefix, category);
-      await Promise.all(
-        toDelete.map((e) => this.http.delete<void>(`/scorecard-events/${e.scorecard_event_id}`)),
-      );
-      this.scoreCardEvents = this.scoreCardEvents.filter(
-        (e) => !toDelete.some((d) => d.scorecard_event_id === e.scorecard_event_id),
-      );
-    }
-  }
-
-  // ------------------------
-  // SAFETY CATEGORIES
-  // ------------------------
-  async addSafetyCategory(
-    input: Omit<SafetyCategory, 'category_id'>,
-  ): Promise<SafetyCategory> {
-    const created = await this.http.post<SafetyCategory>('/safety-categories', input);
-    this.safetyCategories = upsertById(this.safetyCategories, created, 'category_id');
-    return created;
-  }
-
-  async updateSafetyCategory(cat: SafetyCategory): Promise<SafetyCategory> {
-    const updated = await this.http.put<SafetyCategory>(
-      `/safety-categories/${cat.category_id}`,
-      cat,
-    );
-    this.safetyCategories = upsertById(this.safetyCategories, updated, 'category_id');
-    return updated;
-  }
-
-  async deleteSafetyCategory(id: Id): Promise<void> {
-    await this.http.delete<void>(`/safety-categories/${id}`);
-    this.safetyCategories = this.safetyCategories.filter((c) => c.category_id !== id);
-  }
-
-  // ------------------------
-  // DRIVER TYPES
-  // ------------------------
+  // --- DRIVER TYPES (UPDATED FOR REACTIVITY) ---
   async addDriverType(input: Omit<DriverType, 'driver_type_id'>): Promise<DriverType> {
     const created = await this.http.post<DriverType>('/driver-types', input);
-    this.driverTypes = upsertById(this.driverTypes, created, 'driver_type_id');
+    this.driverTypes = [...this.driverTypes, created];
+    this.notify();
     return created;
   }
 
   async updateDriverType(type: DriverType): Promise<DriverType> {
-    const updated = await this.http.put<DriverType>(
-      `/driver-types/${type.driver_type_id}`,
-      type,
-    );
-    this.driverTypes = upsertById(this.driverTypes, updated, 'driver_type_id');
+    const updated = await this.http.put<DriverType>(`/driver-types/${type.driver_type_id}`, type);
+    this.driverTypes = this.driverTypes.map((t) => (t.driver_type_id === updated.driver_type_id ? updated : t));
+    this.notify();
     return updated;
   }
 
   async deleteDriverType(id: Id): Promise<void> {
     await this.http.delete<void>(`/driver-types/${id}`);
     this.driverTypes = this.driverTypes.filter((t) => t.driver_type_id !== id);
+    this.notify();
   }
 
-  // ------------------------
-  // HISTORY
-  // ------------------------
-  /** Ask server for current truck history (keeps a local copy as well). */
-  async getTruckHistory(truckId: Id): Promise<TruckHistoryEvent[]> {
-    const history = await this.http.get<TruckHistoryEvent[]>(`/trucks/${truckId}/history`);
-    // Keep a normalized local cache (replace entries for this truck)
-    const others = this.truckHistory.filter((h) => h.truck_id !== truckId);
-    this.truckHistory = [...others, ...(history ?? [])].sort((a, b) =>
-      (b.date ?? '').localeCompare(a.date ?? ''),
-    );
-    return history ?? [];
+  // --- DRIVERS ---
+  async addDriver(input: Omit<Driver, 'driver_id'>): Promise<Driver> {
+    const created = await this.http.post<Driver>('/drivers', input);
+    this.drivers = [...this.drivers, created];
+    this.notify();
+    return created;
   }
 
-  // ------------------------
-  // STATS
-  // ------------------------
-  /**
-   * Get driver stats from the server if available; otherwise compute from cached events.
-   * Returns counts/sums commonly used in your UI.
-   */
-  async getDriverStats(driverId: Id): Promise<{
-    eventCount: number;
-    totalBonusScore: number;
-    totalPIScore: number;
-    status: 'Good' | 'Warning';
-  }> {
-    // Try server-side stats endpoint
-    try {
-      const stats = await this.http.get<{
-        eventCount: number;
-        totalBonusScore: number;
-        totalPIScore: number;
-        status: 'Good' | 'Warning';
-      }>(`/drivers/${driverId}/stats`);
-
-      if (stats) return stats;
-    } catch {
-      // Ignore and compute locally
-    }
-
-    const events = this.safetyEvents.filter((e) => e.driver_id === driverId);
-
-    // Some data uses string scores; normalize to number
-    const totalBonusScore = events.reduce(
-      (sum, e) => sum + Number((e as any).bonus_score ?? (e as any).bonusScore ?? 0),
-      0,
-    );
-    const totalPIScore = events.reduce(
-      (sum, e) => sum + Number((e as any).p_i_score ?? (e as any).piScore ?? 0),
-      0,
-    );
-
-    return {
-      eventCount: events.length,
-      totalBonusScore,
-      totalPIScore,
-      status: totalBonusScore > 5 ? 'Warning' : 'Good',
-    };
+  async updateDriver(driver: Driver): Promise<Driver> {
+    const updated = await this.http.put<Driver>(`/drivers/${driver.driver_id}`, driver);
+    this.drivers = this.drivers.map((d) => (d.driver_id === updated.driver_id ? updated : d));
+    this.notify();
+    return updated;
   }
-}
 
-// --------- helpers ---------
-function upsertById<T extends Record<string, unknown>>(
-  list: T[],
-  item: T,
-  key: keyof T,
-): T[] {
-  const id = item[key];
-  const idx = list.findIndex((x) => x[key] === id);
-  if (idx === -1) return [...list, item];
-  const next = list.slice();
-  next[idx] = item;
-  return next;
+  async deleteDriver(id: Id): Promise<void> {
+    await this.http.delete<void>(`/drivers/${id}`);
+    this.drivers = this.drivers.filter((d) => d.driver_id !== id);
+    this.notify();
+  }
+
+  // --- TRUCKS ---
+  async addTruck(input: Omit<Truck, 'truck_id'>): Promise<Truck> {
+    const created = await this.http.post<Truck>('/trucks', input);
+    this.trucks = [...this.trucks, created];
+    this.notify();
+    return created;
+  }
+
+  async updateTruck(truck: Truck): Promise<Truck> {
+    const updated = await this.http.put<Truck>(`/trucks/${truck.truck_id}`, truck);
+    this.trucks = this.trucks.map((t) => (t.truck_id === updated.truck_id ? updated : t));
+    this.notify();
+    return updated;
+  }
+
+  async deleteTruck(id: Id): Promise<void> {
+    await this.http.delete<void>(`/trucks/${id}`);
+    this.trucks = this.trucks.filter((t) => t.truck_id !== id);
+    this.notify();
+  }
+
+  // --- SAFETY EVENTS ---
+  async addSafetyEvent(input: Omit<SafetyEvent, 'safety_event_id'>): Promise<SafetyEvent> {
+    const created = await this.http.post<SafetyEvent>('/safety-events', input);
+    this.safetyEvents = [...this.safetyEvents, created];
+    this.notify();
+    return created;
+  }
+
+  async deleteSafetyEvent(id: Id): Promise<void> {
+    await this.http.delete<void>(`/safety-events/${id}`);
+    this.safetyEvents = this.safetyEvents.filter((e) => e.safety_event_id !== id);
+    this.notify();
+  }
 }
 
 export const db = new DBStore();

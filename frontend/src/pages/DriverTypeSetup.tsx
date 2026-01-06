@@ -1,9 +1,9 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../services/dbStore';
 import { DriverType } from '../types';
 
 const DriverTypeSetup = () => {
+  // Sync local state with the store's data
   const [types, setTypes] = useState<DriverType[]>(db.driverTypes);
   const [editingType, setEditingType] = useState<DriverType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -11,40 +11,53 @@ const DriverTypeSetup = () => {
     driver_type: ''
   });
 
-  const refresh = () => setTypes([...db.driverTypes]);
+  // 1. Automatically listen for changes in the DB
+  useEffect(() => {
+    // Initial load if empty
+    if (db.driverTypes.length === 0) {
+      db.init();
+    }
 
-  const handleSave = () => {
+    // Subscribe to any changes (Adds, Updates, Deletes)
+    const unsubscribe = db.subscribe(() => {
+      setTypes([...db.driverTypes]);
+    });
+
+    return unsubscribe; // Clean up on close
+  }, []);
+
+  const handleSave = async () => {
     if (!formData.driver_type) {
       alert('Please fill in the Driver Type Name.');
       return;
     }
 
-    if (editingType) {
-      db.updateDriverType({ ...formData, driver_type_id: editingType.driver_type_id });
-      setEditingType(null);
-    } else {
-      db.addDriverType(formData);
+    try {
+      if (editingType) {
+        await db.updateDriverType({ ...formData, driver_type_id: editingType.driver_type_id });
+        setEditingType(null);
+      } else {
+        await db.addDriverType(formData);
+      }
+      
+      setFormData({ driver_type: '' });
+      (window as any).driver_type_modal?.close();
+      // NO REFRESH() CALLED HERE - handled by subscription!
+    } catch (err) {
+      alert("Failed to save. Check console for details.");
     }
-
-    setFormData({
-      driver_type: ''
-    });
-    refresh();
-    (window as any).driver_type_modal?.close();
   };
 
   const handleEdit = (type: DriverType) => {
     setEditingType(type);
-    setFormData({
-      driver_type: type.driver_type
-    });
+    setFormData({ driver_type: type.driver_type });
     (window as any).driver_type_modal?.showModal();
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm('Delete this driver type? Note: Drivers currently assigned to this type will lose their classification until updated.')) {
-      db.deleteDriverType(id);
-      refresh();
+  const handleDelete = async (id: number) => {
+    if (confirm('Delete this driver type?')) {
+      await db.deleteDriverType(id);
+      // NO REFRESH() CALLED HERE
     }
   };
 
@@ -103,20 +116,14 @@ const DriverTypeSetup = () => {
               ) : (
                 filteredTypes.map(type => (
                   <tr key={type.driver_type_id} className="hover">
-                    <td className="font-mono text-xs opacity-50">{type.driver_type_id.toString().slice(-4)}</td>
+                    <td className="font-mono text-xs opacity-50">{type.driver_type_id}</td>
                     <td className="font-bold">{type.driver_type}</td>
                     <td className="text-right">
                       <div className="flex justify-end gap-1">
-                        <button 
-                          className="btn btn-ghost btn-xs text-info"
-                          onClick={() => handleEdit(type)}
-                        >
+                        <button className="btn btn-ghost btn-xs text-info" onClick={() => handleEdit(type)}>
                           <i className="fa-solid fa-pen"></i>
                         </button>
-                        <button 
-                          className="btn btn-ghost btn-xs text-error"
-                          onClick={() => handleDelete(type.driver_type_id)}
-                        >
+                        <button className="btn btn-ghost btn-xs text-error" onClick={() => handleDelete(type.driver_type_id)}>
                           <i className="fa-solid fa-trash"></i>
                         </button>
                       </div>
@@ -129,30 +136,22 @@ const DriverTypeSetup = () => {
         </div>
       </div>
 
+      {/* Modal remains same as your original version */}
       <dialog id="driver_type_modal" className="modal">
         <div className="modal-box">
-          <h3 className="font-bold text-xl mb-6">
-            {editingType ? 'Update Driver Type' : 'New Driver Type'}
-          </h3>
-          
-          <div className="space-y-4">
-            <div className="form-control">
-              <label className="label font-bold text-xs uppercase opacity-70">Classification Name</label>
-              <input 
-                type="text" 
-                className="input input-bordered" 
-                placeholder="e.g. Owner Operator"
-                value={formData.driver_type}
-                onChange={e => setFormData({...formData, driver_type: e.target.value})}
-              />
-            </div>
+          <h3 className="font-bold text-xl mb-6">{editingType ? 'Update Driver Type' : 'New Driver Type'}</h3>
+          <div className="form-control">
+            <label className="label font-bold text-xs uppercase opacity-70">Classification Name</label>
+            <input 
+              type="text" 
+              className="input input-bordered" 
+              value={formData.driver_type}
+              onChange={e => setFormData({...formData, driver_type: e.target.value})}
+            />
           </div>
-
-          <div className="modal-action mt-8">
+          <div className="modal-action">
             <button className="btn btn-ghost" onClick={() => (window as any).driver_type_modal.close()}>Cancel</button>
-            <button className="btn btn-primary px-8" onClick={handleSave}>
-              {editingType ? 'Save Changes' : 'Create Type'}
-            </button>
+            <button className="btn btn-primary px-8" onClick={handleSave}>Save</button>
           </div>
         </div>
       </dialog>
