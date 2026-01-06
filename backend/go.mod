@@ -1,4 +1,4 @@
-module backend
+module driver-safety-bonus
 
 go 1.25.5
 

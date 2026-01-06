@@ -1,8 +1,6 @@
 // models.go
 package main
 
-// NOTE: All JSON tags match your frontend interfaces.
-
 type Truck struct {
     TruckID    int    `json:"truck_id"`
     UnitNumber string `json:"unit_number"`

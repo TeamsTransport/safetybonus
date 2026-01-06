@@ -5,6 +5,7 @@ import (
     "context"
     "database/sql"
     "fmt"
+    "log"
     "net/http"
     "strconv"
     "strings"
@@ -47,125 +48,159 @@ func bootstrap(c *gin.Context) {
     defer cancel()
 
     var (
-        trucks          []Truck
-        driverTypes     []DriverType
-        drivers         []Driver
+        trucks           []Truck
+        driverTypes      []DriverType
+        drivers          []Driver
         safetyCategories []SafetyCategory
-        scoreCard       []ScoreCardItem
-        safetyEvents    []SafetyEvent
-        scoreCardEvents []ScoreCardEvent
+        scoreCard        []ScoreCardItem
+        safetyEvents     []SafetyEvent
+        scoreCardEvents  []ScoreCardEvent
     )
 
     // Trucks
-    if rows, err := queryRows(ctx, `SELECT truck_id, unit_number, year, status FROM trucks`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var t Truck
-            if err := rows.Scan(&t.TruckID, &t.UnitNumber, &t.Year, &t.Status); err == nil {
-                trucks = append(trucks, t)
-            }
+    rows, err := queryRows(ctx, `SELECT truck_id, unit_number, year, status FROM trucks`)
+    if err != nil {
+        log.Printf("Bootstrap error (trucks): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch trucks data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var t Truck
+        if err := rows.Scan(&t.TruckID, &t.UnitNumber, &t.Year, &t.Status); err == nil {
+            trucks = append(trucks, t)
         }
     }
+    rows.Close()
 
     // Driver types
-    if rows, err := queryRows(ctx, `SELECT driver_type_id, driver_type FROM driver_type`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var dt DriverType
-            if err := rows.Scan(&dt.DriverTypeID, &dt.DriverType); err == nil {
-                driverTypes = append(driverTypes, dt)
-            }
+    rows, err = queryRows(ctx, `SELECT driver_type_id, driver_type FROM driver_type`)
+    if err != nil {
+        log.Printf("Bootstrap error (driver_types): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch driver types data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var dt DriverType
+        if err := rows.Scan(&dt.DriverTypeID, &dt.DriverType); err == nil {
+            driverTypes = append(driverTypes, dt)
         }
     }
+    rows.Close()
 
     // Drivers
-    if rows, err := queryRows(ctx, `SELECT driver_id, driver_code, first_name, last_name, start_date, truck_id, driver_type_id, profile_pic FROM drivers`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var (
-                d                 Driver
-                startDateNullable sql.NullTime
-                truckIDNullable   sql.NullInt64
-                typeIDNullable    sql.NullInt64
-                picNullable       sql.NullString
-            )
-            if err := rows.Scan(&d.DriverID, &d.DriverCode, &d.FirstName, &d.LastName, &startDateNullable, &truckIDNullable, &typeIDNullable, &picNullable); err == nil {
-                if startDateNullable.Valid {
-                    d.StartDate = formatLocalDate(startDateNullable.Time)
-                }
-                if truckIDNullable.Valid {
-                    val := int(truckIDNullable.Int64)
-                    d.TruckID = &val
-                }
-                if typeIDNullable.Valid {
-                    val := int(typeIDNullable.Int64)
-                    d.DriverTypeID = &val
-                }
-                if picNullable.Valid {
-                    val := picNullable.String
-                    d.ProfilePic = &val
-                }
-                drivers = append(drivers, d)
+    rows, err = queryRows(ctx, `SELECT driver_id, driver_code, first_name, last_name, start_date, truck_id, driver_type_id, profile_pic FROM drivers`)
+    if err != nil {
+        log.Printf("Bootstrap error (drivers): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch drivers data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var (
+            d                 Driver
+            startDateNullable sql.NullTime
+            truckIDNullable   sql.NullInt64
+            typeIDNullable    sql.NullInt64
+            picNullable       sql.NullString
+        )
+        if err := rows.Scan(&d.DriverID, &d.DriverCode, &d.FirstName, &d.LastName, &startDateNullable, &truckIDNullable, &typeIDNullable, &picNullable); err == nil {
+            if startDateNullable.Valid {
+                d.StartDate = formatLocalDate(startDateNullable.Time)
             }
+            if truckIDNullable.Valid {
+                val := int(truckIDNullable.Int64)
+                d.TruckID = &val
+            }
+            if typeIDNullable.Valid {
+                val := int(typeIDNullable.Int64)
+                d.DriverTypeID = &val
+            }
+            if picNullable.Valid {
+                val := picNullable.String
+                d.ProfilePic = &val
+            }
+            drivers = append(drivers, d)
         }
     }
+    rows.Close()
 
     // Safety categories
-    if rows, err := queryRows(ctx, `SELECT category_id, code, description, scoring_system, p_i_score FROM safety_categories`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var sc SafetyCategory
-            if err := rows.Scan(&sc.CategoryID, &sc.Code, &sc.Description, &sc.ScoringSystem, &sc.PIScore); err == nil {
-                safetyCategories = append(safetyCategories, sc)
-            }
+    rows, err = queryRows(ctx, `SELECT category_id, code, description, scoring_system, p_i_score FROM safety_categories`)
+    if err != nil {
+        log.Printf("Bootstrap error (safety_categories): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch safety categories data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var sc SafetyCategory
+        if err := rows.Scan(&sc.CategoryID, &sc.Code, &sc.Description, &sc.ScoringSystem, &sc.PIScore); err == nil {
+            safetyCategories = append(safetyCategories, sc)
         }
     }
+    rows.Close()
 
     // Scorecard metrics
-    if rows, err := queryRows(ctx, `SELECT sc_category_id, sc_category, sc_description, driver_type_id FROM scorecard_metrics`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var (
-                m              ScoreCardItem
-                driverTypeNull sql.NullInt64
-            )
-            if err := rows.Scan(&m.ScCategoryID, &m.ScCategory, &m.ScDescription, &driverTypeNull); err == nil {
-                if driverTypeNull.Valid {
-                    val := int(driverTypeNull.Int64)
-                    m.DriverTypeID = &val
-                }
-                scoreCard = append(scoreCard, m)
+    rows, err = queryRows(ctx, `SELECT sc_category_id, sc_category, sc_description, driver_type_id FROM scorecard_metrics`)
+    if err != nil {
+        log.Printf("Bootstrap error (scorecard_metrics): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch scorecard metrics data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var (
+            m              ScoreCardItem
+            driverTypeNull sql.NullInt64
+        )
+        if err := rows.Scan(&m.ScCategoryID, &m.ScCategory, &m.ScDescription, &driverTypeNull); err == nil {
+            if driverTypeNull.Valid {
+                val := int(driverTypeNull.Int64)
+                m.DriverTypeID = &val
             }
+            scoreCard = append(scoreCard, m)
         }
     }
+    rows.Close()
 
     // Safety events
-    if rows, err := queryRows(ctx, `SELECT safety_event_id, driver_id, event_date, category_id, notes, bonus_score, p_i_score, bonus_period FROM safety_events`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var (
-                e       SafetyEvent
-                dateVal time.Time
-            )
-            if err := rows.Scan(&e.SafetyEventID, &e.DriverID, &dateVal, &e.CategoryID, &e.Notes, &e.BonusScore, &e.PIScore, &e.BonusPeriod); err == nil {
-                e.EventDate = formatLocalDate(dateVal)
-                safetyEvents = append(safetyEvents, e)
-            }
+    rows, err = queryRows(ctx, `SELECT safety_event_id, driver_id, event_date, category_id, notes, bonus_score, p_i_score, bonus_period FROM safety_events`)
+    if err != nil {
+        log.Printf("Bootstrap error (safety_events): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch safety events data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var (
+            e       SafetyEvent
+            dateVal time.Time
+        )
+        if err := rows.Scan(&e.SafetyEventID, &e.DriverID, &dateVal, &e.CategoryID, &e.Notes, &e.BonusScore, &e.PIScore, &e.BonusPeriod); err == nil {
+            e.EventDate = formatLocalDate(dateVal)
+            safetyEvents = append(safetyEvents, e)
         }
     }
+    rows.Close()
 
     // Scorecard events
-    if rows, err := queryRows(ctx, `SELECT scorecard_event_id, driver_id, event_date, sc_category_id, sc_score, notes FROM scorecard_events`); err == nil {
-        defer rows.Close()
-        for rows.Next() {
-            var (
-                e       ScoreCardEvent
-                dateVal time.Time
-            )
-            if err := rows.Scan(&e.ScorecardEventID, &e.DriverID, &dateVal, &e.ScCategoryID, &e.ScScore, &e.Notes); err == nil {
-                e.EventDate = formatLocalDate(dateVal)
-                scoreCardEvents = append(scoreCardEvents, e)
-            }
+    rows, err = queryRows(ctx, `SELECT scorecard_event_id, driver_id, event_date, sc_category_id, sc_score, notes FROM scorecard_events`)
+    if err != nil {
+        log.Printf("Bootstrap error (scorecard_events): %v", err)
+        c.JSON(http.StatusInternalServerError, APIError{Message: "failed to fetch scorecard events data"})
+        return
+    }
+    defer rows.Close()
+    for rows.Next() {
+        var (
+            e       ScoreCardEvent
+            dateVal time.Time
+        )
+        if err := rows.Scan(&e.ScorecardEventID, &e.DriverID, &dateVal, &e.ScCategoryID, &e.ScScore, &e.Notes); err == nil {
+            e.EventDate = formatLocalDate(dateVal)
+            scoreCardEvents = append(scoreCardEvents, e)
         }
     }
 
@@ -325,10 +360,10 @@ func getDriverStats(c *gin.Context) {
         status = "Warning"
     }
     c.JSON(http.StatusOK, gin.H{
-        "eventCount":       count,
-        "totalBonusScore":  totalBonus,
-        "totalPIScore":     totalPI,
-        "status":           status,
+        "eventCount":      count,
+        "totalBonusScore": totalBonus,
+        "totalPIScore":    totalPI,
+        "status":          status,
     })
 }
 
@@ -533,6 +568,8 @@ func assignDriverToTruck(c *gin.Context) {
                 d.ProfilePic = &val
             }
             updatedDriver = &d
+        } else {
+            log.Printf("AssignDriverToTruck: failed to fetch driver details after update: %v", err)
         }
         // Set truck status
         _, _ = exec(ctx, `UPDATE trucks SET status='assigned' WHERE truck_id=?`, truckID)
@@ -577,7 +614,7 @@ func getTruckHistory(c *gin.Context) {
     for rows.Next() {
         var h TruckHistoryEvent
         var (
-            dateVal      time.Time
+            dateVal        time.Time
             driverNullable sql.NullInt64
             notesNullable  sql.NullString
         )
@@ -718,17 +755,15 @@ func createScorecardMetric(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
 
-    _, err := exec(ctx, `
+    res, err := exec(ctx, `
       INSERT INTO scorecard_metrics (sc_category, sc_description, driver_type_id) VALUES (?, ?, ?)`,
         m.ScCategory, m.ScDescription, m.DriverTypeID)
     if err != nil {
         c.JSON(http.StatusInternalServerError, APIError{Message: err.Error()})
         return
     }
-    row := db.QueryRowContext(ctx, `SELECT LAST_INSERT_ID()`)
-    var id int
-    _ = row.Scan(&id)
-    m.ScCategoryID = id
+    id, _ := res.LastInsertId()
+    m.ScCategoryID = int(id)
     c.JSON(http.StatusOK, m)
 }
 
