@@ -57,13 +57,13 @@ func main() {
     r := gin.New()
     r.Use(gin.Logger(), gin.Recovery())
 
-    // CORS restricted to http://localhost:3000
+    // UPDATED CORS: More permissive for development to resolve 403 OPTIONS errors
     r.Use(cors.New(cors.Config{
-        AllowOrigins:     []string{"http://localhost:3000"},
+        AllowAllOrigins:  true, // Allows frontend from any local port
         AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-        AllowHeaders:     []string{"Content-Type", "Authorization"},
-        ExposeHeaders:    []string{"Content-Type"},
-        AllowCredentials: false,
+        AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With"},
+        ExposeHeaders:    []string{"Content-Length", "Content-Type"},
+        AllowCredentials: true,
         MaxAge:           12 * time.Hour,
     }))
 
