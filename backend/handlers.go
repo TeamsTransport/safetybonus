@@ -302,23 +302,30 @@ func updateDriver(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
 
-    var startDate sql.NullString
-    if strings.TrimSpace(d.StartDate) != "" {
-        if t, err := parseLocalDate(d.StartDate); err == nil {
-            startDate = sql.NullString{String: formatLocalDate(t), Valid: true}
-        }
-    }
+    // 1. Fetch current truck_id to see if assignment changed
+    var currentTruckID *int
+    _ = db.QueryRowContext(ctx, "SELECT truck_id FROM drivers WHERE driver_id=?", id).Scan(&currentTruckID)
 
+    // 2. Update the Driver
     _, err := exec(ctx, `
-        UPDATE drivers
+        UPDATE drivers 
         SET driver_code=?, first_name=?, last_name=?, start_date=?, truck_id=?, driver_type_id=?, profile_pic=?
         WHERE driver_id=?`,
-        d.DriverCode, d.FirstName, d.LastName, startDate, d.TruckID, d.DriverTypeID, d.ProfilePic, id,
+        d.DriverCode, d.FirstName, d.LastName, d.StartDate, d.TruckID, d.DriverTypeID, d.ProfilePic, id,
     )
     if err != nil {
-        c.JSON(http.StatusInternalServerError, APIError{Message: err.Error()})
+        c.JSON(http.StatusInternalServerError, APIError{Message: "Update failed"})
         return
     }
+
+    if currentTruckID != nil && (d.TruckID == nil || *currentTruckID != *d.TruckID) {
+        _, _ = exec(ctx, "UPDATE trucks SET status='available' WHERE truck_id=?", *currentTruckID)
+    }
+
+    if d.TruckID != nil {
+        _, _ = exec(ctx, "UPDATE trucks SET status='assigned' WHERE truck_id=?", *d.TruckID)
+    }
+
     d.DriverID = id
     c.JSON(http.StatusOK, d)
 }

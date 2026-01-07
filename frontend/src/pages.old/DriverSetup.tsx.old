@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { Driver, Truck } from '../types';
 
@@ -20,17 +20,9 @@ const DriverSetup = () => {
     profile_pic: ''
   });
 
-  useEffect(() => {
-    if (db.drivers.length === 0) {
-      db.init();
-    }
+  const refresh = () => setDrivers([...db.drivers]);
 
-    const unsubscribe = db.subscribe(() => {
-      setDrivers([...db.drivers]);
-    });
-    return () => unsubscribe();
-  }, []);
-
+  // Logic to find trucks that are available or assigned to the driver being edited
   const availableTrucks = useMemo(() => {
     return db.trucks.filter(t => 
       t.status !== 'assigned' || (editingDriver && t.truck_id === editingDriver.truck_id)
@@ -54,34 +46,32 @@ const DriverSetup = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!formData.first_name || !formData.last_name || !formData.driver_code) {
       alert('Please fill in all required fields.');
       return;
     }
 
-    try {
-      if (editingDriver) {
-        await db.updateDriver({ ...formData, driver_id: editingDriver.driver_id });
-      } else {
-        await db.addDriver(formData);
-      }
-
-      // Handle Truck Assignment Sync
-      if (formData.truck_id) {
-        db.assignDriverToTruck(savedDriverId, formData.truck_id);
-      } else if (editingDriver?.truck_id) {
-        // If we cleared the truck, mark the old one as available
-        db.assignDriverToTruck(null, editingDriver.truck_id);
-      }
-
-      resetForm();
-      (window as any).driver_modal?.close();
-      // UI auto-updates via the useEffect subscription
-    } catch (error) {
-      console.error("Save error:", error);
-      alert("Failed to save driver. Please verify your connection.");
+    let savedDriverId: number;
+    if (editingDriver) {
+      db.updateDriver({ ...formData, driver_id: editingDriver.driver_id });
+      savedDriverId = editingDriver.driver_id;
+    } else {
+      const newD = db.addDriver(formData);
+      savedDriverId = newD.driver_id;
     }
+
+    // Handle Truck Assignment Sync
+    if (formData.truck_id) {
+      db.assignDriverToTruck(savedDriverId, formData.truck_id);
+    } else if (editingDriver?.truck_id) {
+      // If we cleared the truck, mark the old one as available
+      db.assignDriverToTruck(null, editingDriver.truck_id);
+    }
+
+    resetForm();
+    refresh();
+    (window as any).driver_modal?.close();
   };
 
   const resetForm = () => {
@@ -112,23 +102,17 @@ const DriverSetup = () => {
     (window as any).driver_modal?.showModal();
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
     if (confirm('Permanently delete this driver? All safety events and scorecards linked to this driver will also be removed.')) {
-      try {
-        await db.deleteDriver(id);
-      } catch (error) {
-        alert("Failed to delete driver.");
-      }
+      db.deleteDriver(id);
+      refresh();
     }
   };
 
-  const filteredDrivers = useMemo(() => {
-    return drivers.filter(d => 
-      `${d.first_name} ${d.last_name} ${d.driver_code}`
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase())
-    );
-  }, [drivers, searchTerm]);
+  const filteredDrivers = drivers.filter(d => 
+    `${d.first_name} ${d.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    d.driver_code.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
