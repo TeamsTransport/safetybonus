@@ -124,14 +124,19 @@ export class DBStore {
     this.notify(); // Ensure UI updates once loading is complete
   }
 
-  private applyBootstrap(data: Partial<DBStore>) {
-    this.trucks = data.trucks ?? [];
-    this.driverTypes = data.driverTypes ?? [];
-    this.drivers = data.drivers ?? [];
-    this.safetyCategories = data.safetyCategories ?? [];
-    this.scoreCard = data.scoreCard ?? [];
-    this.safetyEvents = data.safetyEvents ?? [];
-    this.scoreCardEvents = data.scoreCardEvents ?? [];
+  private applyBootstrap(data: any) {
+    // 1. Direct matches
+    if (data.drivers) this.drivers = data.drivers;
+    if (data.trucks) this.trucks = data.trucks;
+
+    // 2. Map snake_case JSON keys to your class variable names
+    if (data.driver_types)      this.driverTypes = data.driver_types;
+    if (data.safety_categories) this.safetyCategories = data.safety_categories;
+    if (data.scorecard_metrics) this.scoreCard = data.scorecard_metrics;
+    if (data.safety_events)     this.safetyEvents = data.safety_events;
+    if (data.scorecard_events)  this.scoreCardEvents = data.scorecard_events;
+
+    console.log("Bootstrap complete. Safety Events loaded:", this.safetyEvents.length);
     this.notify();
   }
 

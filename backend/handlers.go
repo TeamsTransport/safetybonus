@@ -205,13 +205,13 @@ func bootstrap(c *gin.Context) {
     }
 
     c.JSON(http.StatusOK, gin.H{
-        "trucks":           trucks,
-        "driverTypes":      driverTypes,
-        "drivers":          drivers,
-        "safetyCategories": safetyCategories,
-        "scoreCard":        scoreCard,
-        "safetyEvents":     safetyEvents,
-        "scoreCardEvents":  scoreCardEvents,
+        "trucks":            trucks,
+        "drivers":           drivers,
+        "driver_types":      driverTypes,      // Key: driver_types
+        "safety_categories": safetyCategories, // Key: safety_categories
+        "scorecard_metrics": scoreCard,        // Key: scorecard_metrics
+        "safety_events":     safetyEvents,     // Key: safety_events
+        "scorecard_events":  scoreCardEvents,  // Key: scorecard_events
     })
 }
 
