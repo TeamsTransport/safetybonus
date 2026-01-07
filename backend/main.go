@@ -39,18 +39,19 @@ func main() {
     for i := 1; i <= 20; i++ {
         db, err = sql.Open("mysql", dsn)
         if err == nil {
+            db.SetConnMaxLifetime(time.Minute * 3)
+            db.SetMaxIdleConns(10)
+            db.SetMaxOpenConns(100)
             ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
             err = db.PingContext(ctx)
             cancel()
+            if err == nil {
+                log.Println("Connected to database successfully")
+                break
+            }
         }
-        if err == nil {
-            break
-        }
-        log.Printf("Waiting for database... attempt %d: %v", i, err)
-        time.Sleep(3 * time.Second)
-    }
-    if err != nil {
-        log.Fatalf("Failed to connect to database: %v", err)
+        log.Printf("DB connection attempt %d failed, retrying...", i)
+        time.Sleep(2 * time.Second)
     }
 
     // Gin setup

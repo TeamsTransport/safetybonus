@@ -11,7 +11,7 @@ services:
       - backend_go_cache:/go
       - backend_go_mod_cache:/go/pkg/mod
     environment:
-      DB_DSN: "${DB_USER}:${DB_PASSWORD}@tcp(db:3306)/${DB_NAME}?parseTime=true"
+      DB_DSN: "${DB_DSN}"
       GIN_MODE: debug
     command: sh -c "ls -la && go mod download && go run ."
     tty: true

@@ -1,22 +1,50 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { Driver } from '../types';
 
 const Drivers = () => {
+  // --- 1. Reactivity via Subscription ---
+  const [drivers, setDrivers] = useState<Driver[]>(db.drivers);
   const [typeFilter, setTypeFilter] = useState<number | 'all'>('all');
 
-  const filteredDrivers = typeFilter === 'all' 
-    ? db.drivers 
-    : db.drivers.filter(d => d.driver_type_id === typeFilter);
+  useEffect(() => {
+    if (db.drivers.length === 0) {
+      db.init();
+    }
+    // Listen for any CRUD changes from the Go backend via the store
+    const unsubscribe = db.subscribe(() => {
+      setDrivers([...db.drivers]);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
   };
+
+  // --- 2. Score & Status Calculation (Restored from .old) ---
+  const getDriverStats = (driverId: number) => {
+    const safetyEvents = db.safetyEvents.filter(e => e.driver_id === driverId);
+    const totalBonusScore = safetyEvents.reduce((sum, event) => sum + event.bonus_score, 0);
+    const status = totalBonusScore > 5 ? 'Warning' : 'Good';
+    
+    return {
+      totalBonusScore: totalScore,
+      status: totalScore > 5 ? 'Warning' : 'Good'
+    };
+  };
+
+  const filteredDrivers = useMemo(() => {
+    return typeFilter === 'all' 
+      ? drivers 
+      : drivers.filter(d => d.driver_type_id === typeFilter);
+  }, [drivers, typeFilter]);
 
   return (
     <div className="space-y-6">
