@@ -32,12 +32,8 @@ const Drivers = () => {
   const getDriverStats = (driverId: number) => {
     const safetyEvents = db.safetyEvents.filter(e => e.driver_id === driverId);
     const totalBonusScore = safetyEvents.reduce((sum, event) => sum + event.bonus_score, 0);
-    const status = totalBonusScore > 5 ? 'Warning' : 'Good';
-    
-    return {
-      totalBonusScore: totalScore,
-      status: totalScore > 5 ? 'Warning' : 'Good'
-    };
+    const status = totalBonusScore > 5 ? 'Warning' : 'Good';  
+    return { totalBonusScore, status };
   };
 
   const filteredDrivers = useMemo(() => {
