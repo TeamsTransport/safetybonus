@@ -3,7 +3,7 @@ import { db } from '../services/dbStore';
 import { Driver } from '../types';
 
 const DriverSetup = () => {
-  const [drivers, setDrivers] = useState<Driver[]>(db.drivers);
+  const [drivers, setDrivers] = useState<Driver[]>(db.drivers || []);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [truckSearch, setTruckSearch] = useState('');
@@ -31,7 +31,7 @@ const DriverSetup = () => {
 
   // Updated to use db.trucks (snake_case)
   const availableTrucks = useMemo(() => {
-    const list = db.trucks || [];
+    const list = (db.trucks || []);
     return list.filter(t => 
       t.status !== 'assigned' || (editingDriver && t.truck_id === editingDriver.truck_id)
     ).filter(t => 
@@ -152,7 +152,7 @@ const DriverSetup = () => {
           onClick={() => {
             setEditingDriver(null);
             resetForm();
-            (window as any).driver_modal?.showModal();
+            (document.getElementById('driver_modal') as any)?.showModal();
           }}
         >
           <i className="fa-solid fa-user-plus mr-2"></i> Register New Driver
@@ -194,8 +194,8 @@ const DriverSetup = () => {
                 </tr>
               ) : (
                 filteredDrivers.map(d => {
-                  const type = db.driverTypes.find(t => t.driver_type_id === d.driver_type_id);
-                  const truck = db.trucks.find(t => t.truck_id === d.truck_id);
+                  const type = (db.driver_types || []).find(t => t.driver_type_id === d.driver_type_id);
+                  const truck = (db.trucks || []).find(t => t.truck_id === d.truck_id);
                   const avatarUrl = d.profile_pic || `https://ui-avatars.com/api/?name=${encodeURIComponent(`${d.first_name} ${d.last_name}`)}&background=random&color=fff&bold=true`;
                   
                   return (
@@ -335,7 +335,7 @@ const DriverSetup = () => {
                 value={formData.driver_type_id || 2}
                 onChange={e => setFormData({...formData, driver_type_id: Number(e.target.value)})}
               >
-                {db.driverTypes.map(t => (
+                {(db.driver_types || []).map(t => (
                   <option key={t.driver_type_id} value={t.driver_type_id}>{t.driver_type}</option>
                 ))}
               </select>
@@ -372,7 +372,7 @@ const DriverSetup = () => {
           </div>
 
           <div className="modal-action">
-            <button className="btn btn-ghost" onClick={() => (window as any).driver_modal.close()}>Cancel</button>
+            <button className="btn btn-ghost" onClick={() => (document.getElementById('driver_modal') as any)?.close()}>Cancel</button>
             <button className="btn btn-primary px-8" onClick={handleSave}>
               {editingDriver ? 'Update Profile' : 'Save Driver'}
             </button>
