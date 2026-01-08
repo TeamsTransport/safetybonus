@@ -51,25 +51,20 @@ const Drivers = () => {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold">Driver Roster</h2>
-          <p className="text-base-content/60">Fleet performance and safety monitoring</p>
+          <p className="text-base-content/60">Live performance monitoring</p>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          <div className="form-control">
-            <select 
-              className="select select-bordered w-full sm:w-48"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            >
-              <option value="all">All Driver Types</option>
-              {db.driverTypes.map(type => (
-                <option key={type.driver_type_id} value={type.driver_type_id}>
-                  {type.driver_type}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <select 
+          className="select select-bordered w-full sm:w-48"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+        >
+          <option value="all">All Driver Types</option>
+          {/* Safety check: use optional chaining on driverTypes */}
+          {db.driverTypes?.map(t => (
+            <option key={t.driver_type_id} value={t.driver_type_id}>{t.driver_type}</option>
+          ))}
+        </select>
       </header>
 
       <div className="card bg-base-100 shadow-xl border border-base-200 overflow-hidden">
