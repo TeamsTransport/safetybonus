@@ -14,22 +14,6 @@ class HttpClient {
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
-
-  /*
-  private async request<T>(
-    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-    return res.json();
-  }
-  */
   
   private async request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
