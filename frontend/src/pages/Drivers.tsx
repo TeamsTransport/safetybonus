@@ -93,7 +93,7 @@ const Drivers = () => {
                 </tr>
               ) : (
                 filteredDrivers.map(driver => {
-                  const stats = db.getDriverStats(driver.driver_id);
+                  const stats = getDriverStats(driver.driver_id);
                   const truck = db.trucks.find(t => t.truck_id === driver.truck_id);
                   const type = db.driverTypes.find(t => t.driver_type_id === driver.driver_type_id);
                   const avatarUrl = driver.profile_pic || `https://ui-avatars.com/api/?name=${encodeURIComponent(`${driver.first_name} ${driver.last_name}`)}&background=random&color=fff&size=64&font-size=0.45&bold=true`;
