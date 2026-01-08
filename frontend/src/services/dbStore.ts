@@ -15,6 +15,7 @@ class HttpClient {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  /*
   private async request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
@@ -27,6 +28,30 @@ class HttpClient {
     });
     if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
     return res.json();
+  }
+  */
+  
+  private async request<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    console.log(`Attempting ${method} request to: ${url}`); // <--- ADD THIS LOG
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      
+      if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+      return res.json();
+    } catch (error) {
+      console.error("Fetch implementation error:", error); // <--- ADD THIS LOG
+      throw error;
+    }
   }
 
   get<T>(path: string) { return this.request<T>('GET', path); }
