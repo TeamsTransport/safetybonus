@@ -1,5 +1,4 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { SafetyCategory } from '../types';
 
@@ -7,10 +6,13 @@ const SafetyEventSetup = () => {
   const setupModalRef = useRef<HTMLDialogElement>(null);
   const deleteModalRef = useRef<HTMLDialogElement>(null);
 
-  const [categories, setCategories] = useState<SafetyCategory[]>(db.safetyCategories);
+  // --- 1. State Management ---
+  // Standardized to db.safety_categories (snake_case)
+  const [categories, setCategories] = useState<SafetyCategory[]>(db.safety_categories || []);
   const [editingCategory, setEditingCategory] = useState<SafetyCategory | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  
   const [formData, setFormData] = useState<Omit<SafetyCategory, 'category_id'>>({
     code: '',
     description: '',
@@ -18,29 +20,50 @@ const SafetyEventSetup = () => {
     p_i_score: 0
   });
 
-  const refresh = () => setCategories([...db.safetyCategories]);
+  // --- 2. Reactivity via Subscription ---
+  useEffect(() => {
+    if (db.safety_categories.length === 0) db.init();
 
-  const handleSave = () => {
-    if (!formData.code || !formData.description) {
+    // The store notifies us whenever a category is saved, updated, or deleted
+    const unsubscribe = db.subscribe(() => {
+      setCategories([...db.safety_categories]);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- 3. Handlers ---
+
+  const handleSave = async () => {
+    // Basic validation
+    if (!formData.code.trim() || !formData.description.trim()) {
       alert('Please fill in Code and Description.');
       return;
     }
 
-    if (editingCategory) {
-      db.updateSafetyCategory({ ...formData, category_id: editingCategory.category_id });
-      setEditingCategory(null);
-    } else {
-      db.addSafetyCategory(formData);
-    }
+    try {
+      // Trusting the 'Upsert' pattern in the store
+      // If editingCategory is set, we include the ID to trigger a PUT
+      await db.saveSafetyCategory({
+        ...formData,
+        ...(editingCategory && { category_id: editingCategory.category_id })
+      } as SafetyCategory);
 
+      resetForm();
+      setupModalRef.current?.close();
+    } catch (err) {
+      console.error("Save error:", err);
+      alert("Failed to save category. Check backend connection.");
+    }
+  };
+
+  const resetForm = () => {
+    setEditingCategory(null);
     setFormData({
       code: '',
       description: '',
       scoring_system: 0,
       p_i_score: 0
     });
-    refresh();
-    setupModalRef.current?.close();
   };
 
   const handleEdit = (cat: SafetyCategory) => {
@@ -59,19 +82,27 @@ const SafetyEventSetup = () => {
     deleteModalRef.current?.showModal();
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (categoryToDelete !== null) {
-      db.deleteSafetyCategory(categoryToDelete);
-      setCategoryToDelete(null);
-      deleteModalRef.current?.close();
-      refresh();
+      try {
+        await db.deleteSafetyCategory(categoryToDelete);
+        setCategoryToDelete(null);
+        deleteModalRef.current?.close();
+      } catch (err) {
+        alert("Failed to delete category.");
+      }
     }
   };
 
-  const filteredCategories = categories.filter(c => 
-    c.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // --- 4. Memoized Filtering ---
+  const filteredCategories = useMemo(() => {
+    const list = categories || [];
+    const term = searchTerm.toLowerCase();
+    return list.filter(c => 
+      c.description.toLowerCase().includes(term) ||
+      c.code.toLowerCase().includes(term)
+    );
+  }, [categories, searchTerm]);
 
   return (
     <div className="space-y-6">

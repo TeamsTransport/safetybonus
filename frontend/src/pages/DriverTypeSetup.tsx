@@ -1,70 +1,81 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { DriverType } from '../types';
 
 const DriverTypeSetup = () => {
-  // Sync local state with the store's data
-  const [types, setTypes] = useState<DriverType[]>(db.driverTypes);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // --- 1. Reactivity via Subscription ---
+  // Updated to use the new snake_case property: driver_types
+  const [types, setTypes] = useState<DriverType[]>(db.driver_types || []);
   const [editingType, setEditingType] = useState<DriverType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  
   const [formData, setFormData] = useState<Omit<DriverType, 'driver_type_id'>>({
     driver_type: ''
   });
 
-  // 1. Automatically listen for changes in the DB
   useEffect(() => {
-    // Initial load if empty
-    if (db.driverTypes.length === 0) {
+    // Initial fetch if store is empty
+    if (db.driver_types.length === 0) {
       db.init();
     }
 
-    // Subscribe to any changes (Adds, Updates, Deletes)
+    // Subscribe to store updates (triggered by db.notify() in dbStore)
     const unsubscribe = db.subscribe(() => {
-      setTypes([...db.driverTypes]);
+      setTypes([...db.driver_types]);
     });
 
-    return unsubscribe; // Clean up on close
+    return () => unsubscribe(); 
   }, []);
 
+  // --- 2. Handlers ---
+
   const handleSave = async () => {
-    if (!formData.driver_type) {
+    if (!formData.driver_type?.trim()) {
       alert('Please fill in the Driver Type Name.');
       return;
     }
 
     try {
-      if (editingType) {
-        await db.updateDriverType({ ...formData, driver_type_id: editingType.driver_type_id });
-        setEditingType(null);
-      } else {
-        await db.addDriverType(formData);
-      }
-      
-      setFormData({ driver_type: '' });
-      (window as any).driver_type_modal?.close();
-      // NO REFRESH() CALLED HERE - handled by subscription!
+      await db.saveDriverType(formData); 
+      resetForm();
+      (document.getElementById('driver_type_modal') as any)?.close();
     } catch (err) {
-      alert("Failed to save. Check console for details.");
+      console.error("Save error:", err);
+      alert("Save failed. Please check the backend.");
     }
+  };
+
+  const resetForm = () => {
+    setEditingType(null);
+    setFormData({ driver_type: '' });
   };
 
   const handleEdit = (type: DriverType) => {
     setEditingType(type);
     setFormData({ driver_type: type.driver_type });
-    (window as any).driver_type_modal?.showModal();
+    
+    const modal = document.getElementById('driver_type_modal') as any;
+    modal?.showModal();
   };
 
   const handleDelete = async (id: number) => {
-    if (confirm('Delete this driver type?')) {
-      await db.deleteDriverType(id);
-      // NO REFRESH() CALLED HERE
+    if (window.confirm('Delete this driver type? This may affect drivers assigned to this type.')) {
+      try {
+        await db.deleteDriverType(id);
+      } catch (err) {
+        console.error("Delete error:", err);
+        alert("Failed to delete driver type.");
+      }
     }
   };
 
-  const filteredTypes = types.filter(t => 
-    t.driver_type.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // --- 3. Memoized Filtering ---
+  const filteredTypes = useMemo(() => {
+    const list = types || [];
+    return list.filter(t => 
+      t.driver_type.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [types, searchTerm]);
 
   return (
     <div className="space-y-6">

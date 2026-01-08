@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { SafetyCategory, SafetyEvent } from '../types';
 
@@ -7,61 +6,62 @@ const SafetyEvents = () => {
   const logModalRef = useRef<HTMLDialogElement>(null);
   const deleteModalRef = useRef<HTMLDialogElement>(null);
 
-  // Initial rolling 3-month date range helper
+  // --- 1. Date Helpers ---
   const getInitialStartDate = () => {
     const d = new Date();
     d.setMonth(d.getMonth() - 3);
     return d.toISOString().split('T')[0];
   };
-
   const getTodayDate = () => new Date().toISOString().split('T')[0];
 
-  // Filter States
+  // --- 2. State Management ---
   const [driverIdFilter, setDriverIdFilter] = useState<number>(0);
   const [startDateFilter, setStartDateFilter] = useState(getInitialStartDate());
   const [endDateFilter, setEndDateFilter] = useState(getTodayDate());
   
-  // Modal Form States
   const [selectedDriverId, setSelectedDriverId] = useState<number>(0);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number>(0);
   const [notes, setNotes] = useState('');
   const [eventDate, setEventDate] = useState(getTodayDate());
   
-  // Deletion state
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
-  
-  // Data States
-  const [events, setEvents] = useState<SafetyEvent[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [storeTick, setStoreTick] = useState(0); // Used to trigger re-renders on store updates
 
-  // Initial load
+  // --- 3. Reactivity & Initialization ---
   useEffect(() => {
-    applyFilters();
+    if (db.safety_events.length === 0) db.init();
+
+    const unsubscribe = db.subscribe(() => {
+      setStoreTick(prev => prev + 1); // Refresh local memoized filters when store changes
+    });
+    return () => unsubscribe();
   }, []);
 
-  const applyFilters = () => {
-    setIsSearching(true);
-    setTimeout(() => {
-      let filtered = [...db.safetyEvents];
-      if (startDateFilter) filtered = filtered.filter(e => e.event_date >= startDateFilter);
-      if (endDateFilter) filtered = filtered.filter(e => e.event_date <= endDateFilter);
-      if (driverIdFilter !== 0) filtered = filtered.filter(e => e.driver_id === driverIdFilter);
-      setEvents(filtered.sort((a, b) => b.event_date.localeCompare(a.event_date)));
-      setIsSearching(false);
-    }, 200);
-  };
+  // --- 4. Filtering Logic (Memoized) ---
+  const filteredEvents = useMemo(() => {
+    // Standardized to db.safety_events
+    let list = [...(db.safety_events || [])];
+
+    if (startDateFilter) list = list.filter(e => e.event_date >= startDateFilter);
+    if (endDateFilter) list = list.filter(e => e.event_date <= endDateFilter);
+    if (driverIdFilter !== 0) list = list.filter(e => e.driver_id === driverIdFilter);
+
+    return list.sort((a, b) => b.event_date.localeCompare(a.event_date));
+  }, [storeTick, driverIdFilter, startDateFilter, endDateFilter]);
+
+  // --- 5. Event Handlers ---
 
   const handleResetFilters = () => {
     setDriverIdFilter(0);
     setStartDateFilter(getInitialStartDate());
     setEndDateFilter(getTodayDate());
-    setTimeout(applyFilters, 0);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const category = db.safetyCategories.find(c => c.category_id === selectedCategoryId);
+    // Standardized to db.safety_categories
+    const category = db.safety_categories.find(c => c.category_id === selectedCategoryId);
     
     if (!selectedDriverId || !category) {
       alert("Please select a driver and a category.");
@@ -78,15 +78,21 @@ const SafetyEvents = () => {
       bonus_period: true
     };
 
-    await db.addSafetyEvent(newEvent);
+    try {
+      // Assuming you've unified to saveSafetyEvent in dbStore
+      await db.saveSafetyEvent(newEvent as SafetyEvent);
 
-    setSelectedDriverId(0);
-    setSelectedCategoryId(0);
-    setNotes('');
-    setEventDate(getTodayDate());
-    
-    logModalRef.current?.close();
-    applyFilters();
+      // Reset form
+      setSelectedDriverId(0);
+      setSelectedCategoryId(0);
+      setNotes('');
+      setEventDate(getTodayDate());
+      
+      logModalRef.current?.close();
+    } catch (err) {
+      console.error("Save error:", err);
+      alert("Failed to save safety event.");
+    }
   };
 
   const openDeleteModal = (id: number) => {
@@ -94,13 +100,26 @@ const SafetyEvents = () => {
     deleteModalRef.current?.showModal();
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (eventToDelete !== null) {
-      db.deleteSafetyEvent(eventToDelete);
-      setEventToDelete(null);
-      deleteModalRef.current?.close();
-      applyFilters();
+      try {
+        await db.deleteSafetyEvent(eventToDelete);
+        setEventToDelete(null);
+        deleteModalRef.current?.close();
+      } catch (err) {
+        alert("Failed to delete event.");
+      }
     }
+  };
+
+  // Helper for Roster/Table display
+  const getDriverName = (id: number) => {
+    const d = db.drivers.find(drv => drv.driver_id === id);
+    return d ? `${d.first_name} ${d.last_name}` : 'Unknown';
+  };
+
+  const getCategoryCode = (id: number) => {
+    return db.safety_categories.find(c => c.category_id === id)?.code || 'N/A';
   };
 
   return (

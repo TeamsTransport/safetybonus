@@ -1,50 +1,88 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { ScoreCardItem } from '../types';
 
 const ScorecardSetup = () => {
+  // Use a single modal ref if possible, or keep yours
   const addModalRef = useRef<HTMLDialogElement>(null);
   const editModalRef = useRef<HTMLDialogElement>(null);
   const deleteModalRef = useRef<HTMLDialogElement>(null);
 
-  const [items, setItems] = useState<ScoreCardItem[]>(db.scoreCard);
+  // --- 1. State Management ---
+  // Standardized to db.scorecard_metrics (snake_case)
+  const [items, setItems] = useState<ScoreCardItem[]>(db.scorecard_metrics || []);
   const [editingItem, setEditingItem] = useState<ScoreCardItem | null>(null);
   const [itemToDelete, setItemToDelete] = useState<number | null>(null);
-  const [newItem, setNewItem] = useState<{
-    sc_category: string;
-    sc_description: string;
-    driver_type_id: number | null;
-  }>({ 
+  
+  // Use formData for both Add and Edit to simplify logic
+  const [formData, setFormData] = useState<Omit<ScoreCardItem, 'sc_category_id'>>({ 
     sc_category: 'SAFETY', 
     sc_description: '',
     driver_type_id: null 
   });
 
-  const refresh = () => setItems([...db.scoreCard]);
+  // --- 2. Reactivity via Subscription ---
+  useEffect(() => {
+    if (db.scorecard_metrics.length === 0) db.init();
 
-  const handleAdd = () => {
-    if (!newItem.sc_description) return;
-    db.addScoreCardItem(newItem);
-    setNewItem({ ...newItem, sc_description: '' });
-    refresh();
-    addModalRef.current?.close();
-  };
+    const unsubscribe = db.subscribe(() => {
+      setItems([...db.scorecard_metrics]);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  const handleUpdate = () => {
-    if (editingItem) {
-      db.updateScoreCardItem(editingItem);
-      setEditingItem(null);
-      refresh();
+  // --- 3. Handlers ---
+
+  const handleSave = async () => {
+    if (!formData.sc_description.trim()) {
+      alert("Please enter a description.");
+      return;
+    }
+
+    try {
+      // Unified Upsert: includes the ID if we are editing
+      await db.saveScorecardMetric({
+        ...formData,
+        ...(editingItem && { sc_category_id: editingItem.sc_category_id })
+      } as ScoreCardItem);
+
+      resetForm();
+      addModalRef.current?.close();
       editModalRef.current?.close();
+    } catch (err) {
+      console.error("Save error:", err);
+      alert("Failed to save metric.");
     }
   };
 
-  const confirmDelete = () => {
+  const resetForm = () => {
+    setEditingItem(null);
+    setFormData({
+      sc_category: 'SAFETY',
+      sc_description: '',
+      driver_type_id: null
+    });
+  };
+
+  const openEdit = (item: ScoreCardItem) => {
+    setEditingItem(item);
+    setFormData({
+      sc_category: item.sc_category,
+      sc_description: item.sc_description,
+      driver_type_id: item.driver_type_id
+    });
+    editModalRef.current?.showModal();
+  };
+
+  const confirmDelete = async () => {
     if (itemToDelete !== null) {
-      db.deleteScoreCardItem(itemToDelete);
-      setItemToDelete(null);
-      deleteModalRef.current?.close();
-      refresh();
+      try {
+        await db.deleteScoreCardItem(itemToDelete);
+        setItemToDelete(null);
+        deleteModalRef.current?.close();
+      } catch (err) {
+        alert("Failed to delete metric.");
+      }
     }
   };
 
@@ -53,25 +91,23 @@ const ScorecardSetup = () => {
     deleteModalRef.current?.showModal();
   };
 
-  const openEdit = (item: ScoreCardItem) => {
-    setEditingItem(item);
-    editModalRef.current?.showModal();
+  // --- 4. Helpers (Standardized to db.driver_types) ---
+
+  const getDriverTypeName = (id?: number | null) => {
+    if (!id) return 'All Drivers';
+    // Changed to db.driver_types
+    return db.driver_types.find(t => t.driver_type_id === id)?.driver_type || 'Unknown';
   };
 
-  const categories = ['SAFETY', 'MAINTENANCE', 'DISPATCH'];
-  
   const getDriverTypeBadgeClass = (id?: number | null) => {
     if (!id) return 'badge-ghost opacity-60';
-    const type = db.driverTypes.find(t => t.driver_type_id === id);
+    const type = db.driver_types.find(t => t.driver_type_id === id);
     if (type?.driver_type.includes('Company')) return 'badge-success badge-outline';
     if (type?.driver_type.includes('Owner')) return 'badge-neutral';
     return 'badge-info badge-outline';
   };
 
-  const getDriverTypeName = (id?: number | null) => {
-    if (!id) return 'All Drivers';
-    return db.driverTypes.find(t => t.driver_type_id === id)?.driver_type || 'Unknown';
-  };
+  const categories = ['SAFETY', 'MAINTENANCE', 'DISPATCH'];
 
   return (
     <div className="space-y-6">

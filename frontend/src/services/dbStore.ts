@@ -1,65 +1,32 @@
-// dbStore.ts — Production-ready reactive client-side store bound to Go API
-import {
-  Truck,
-  Driver,
-  DriverType,
-  SafetyCategory,
-  ScoreCardItem,
-  SafetyEvent,
-  ScoreCardEvent,
-  TruckHistoryEvent,
+import { 
+  Truck, Driver, DriverType, SafetyCategory, 
+  ScoreCardItem, SafetyEvent, ScoreCardEvent,
+  DBStoreState 
 } from '../types';
 
 type Id = number;
 type Listener = () => void;
 
-// Centralized HTTP client
+// 1. Centralized HTTP client
 class HttpClient {
   private baseUrl: string;
-  private token?: string;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-  }
-
-  setAuthToken(token: string | undefined) {
-    this.token = token;
-  }
-
-  private headers(extra?: Record<string, string>) {
-    return {
-      'Content-Type': 'application/json',
-      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-      ...(extra ?? {}),
-    };
   }
 
   private async request<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
-    { timeoutMs = 15000 }: { timeoutMs?: number } = {},
   ): Promise<T> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
-        method,
-        headers: this.headers(),
-        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status} ${res.statusText} for ${path}${text ? ` — ${text}` : ''}`);
-      }
-
-      if (res.status === 204) return undefined as T;
-      return (await res.json()) as T;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
+    return res.json();
   }
 
   get<T>(path: string) { return this.request<T>('GET', path); }
@@ -68,153 +35,66 @@ class HttpClient {
   delete<T>(path: string) { return this.request<T>('DELETE', path); }
 }
 
-export class DBStore {
-  // In-memory caches
-  trucks: Truck[] = [];
-  truckHistory: TruckHistoryEvent[] = [];
-  driverTypes: DriverType[] = [];
+// 2. The Store
+export class DBStore implements DBStoreState {
+  // Properties now match Go JSON keys exactly
   drivers: Driver[] = [];
-  safetyCategories: SafetyCategory[] = [];
-  scoreCard: ScoreCardItem[] = [];
-  safetyEvents: SafetyEvent[] = [];
-  scoreCardEvents: ScoreCardEvent[] = [];
+  trucks: Truck[] = [];
+  driver_types: DriverType[] = [];
+  safety_categories: SafetyCategory[] = [];
+  scorecard_metrics: ScoreCardItem[] = [];
+  safety_events: SafetyEvent[] = [];
+  scorecard_events: ScoreCardEvent[] = [];
 
-  private http: HttpClient;
   private listeners: Set<Listener> = new Set();
+  private http = new HttpClient('http://localhost:8080/api');
 
-  constructor() {
-    const base = import.meta.env?.VITE_API_BASE_URL?.toString() || 'http://localhost:8080/api';
-    this.http = new HttpClient(base);
-  }
-
-  // --- REACTIVE SUBSCRIPTION SYSTEM ---
-  subscribe(listener: Listener) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  private notify() {
-    this.listeners.forEach((l) => l());
-  }
-
-  // --- INITIALIZATION ---
-  async init(): Promise<void> {
+  async init() {
     try {
-      const data = await this.http.get<Partial<DBStore>>('/bootstrap');
+      const data = await this.http.get<any>('/bootstrap');
       this.applyBootstrap(data);
-    } catch {
-      const [trucks, dTypes, drvs, cats, sc, se, sce] = await Promise.all([
-        this.http.get<Truck[]>('/trucks'),
-        this.http.get<DriverType[]>('/driver-types'),
-        this.http.get<Driver[]>('/drivers'),
-        this.http.get<SafetyCategory[]>('/safety-categories'),
-        this.http.get<ScoreCardItem[]>('/scorecard-metrics'),
-        this.http.get<SafetyEvent[]>('/safety-events'),
-        this.http.get<ScoreCardEvent[]>('/scorecard-events'),
-      ]);
-
-      this.trucks = trucks ?? [];
-      this.driverTypes = dTypes ?? [];
-      this.drivers = drvs ?? [];
-      this.safetyCategories = cats ?? [];
-      this.scoreCard = sc ?? [];
-      this.safetyEvents = se ?? [];
-      this.scoreCardEvents = sce ?? [];
+    } catch (err) {
+      console.error("Store init failed:", err);
     }
-    this.notify(); // Ensure UI updates once loading is complete
   }
 
   private applyBootstrap(data: any) {
-    // 1. Direct matches
-    if (data.drivers) this.drivers = data.drivers;
-    if (data.trucks) this.trucks = data.trucks;
-
-    // 2. Map snake_case JSON keys to your class variable names
-    if (data.driver_types)      this.driverTypes = data.driver_types;
-    if (data.safety_categories) this.safetyCategories = data.safety_categories;
-    if (data.scorecard_metrics) this.scoreCard = data.scorecard_metrics;
-    if (data.safety_events)     this.safetyEvents = data.safety_events;
-    if (data.scorecard_events)  this.scoreCardEvents = data.scorecard_events;
-
-    console.log("Bootstrap complete. Safety Events loaded:", this.safetyEvents.length);
+    // Direct assignment works because names are identical
+    Object.assign(this, {
+      drivers: data.drivers || [],
+      trucks: data.trucks || [],
+      driver_types: data.driver_types || [],
+      safety_categories: data.safety_categories || [],
+      scorecard_metrics: data.scorecard_metrics || [],
+      safety_events: data.safety_events || [],
+      scorecard_events: data.scorecard_events || []
+    });
     this.notify();
   }
 
-  // --- DRIVER TYPES (UPDATED FOR REACTIVITY) ---
-  async addDriverType(input: Omit<DriverType, 'driver_type_id'>): Promise<DriverType> {
-    const created = await this.http.post<DriverType>('/driver-types', input);
-    this.driverTypes = [...this.driverTypes, created];
-    this.notify();
-    return created;
+  subscribe(l: Listener) {
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
   }
 
-  async updateDriverType(type: DriverType): Promise<DriverType> {
-    const updated = await this.http.put<DriverType>(`/driver-types/${type.driver_type_id}`, type);
-    this.driverTypes = this.driverTypes.map((t) => (t.driver_type_id === updated.driver_type_id ? updated : t));
-    this.notify();
-    return updated;
+  private notify() {
+    this.listeners.forEach(l => l());
   }
 
-  async deleteDriverType(id: Id): Promise<void> {
-    await this.http.delete<void>(`/driver-types/${id}`);
-    this.driverTypes = this.driverTypes.filter((t) => t.driver_type_id !== id);
+  // Example Helper: Save Driver
+  async saveDriver(driver: Driver): Promise<Driver> {
+    const saved = driver.driver_id 
+      ? await this.http.put<Driver>(`/drivers/${driver.driver_id}`, driver)
+      : await this.http.post<Driver>('/drivers', driver);
+    
+    // Update local state
+    if (driver.driver_id) {
+      this.drivers = this.drivers.map(d => d.driver_id === saved.driver_id ? saved : d);
+    } else {
+      this.drivers = [...this.drivers, saved];
+    }
     this.notify();
-  }
-
-  // --- DRIVERS ---
-  async addDriver(input: Omit<Driver, 'driver_id'>): Promise<Driver> {
-    const created = await this.http.post<Driver>('/drivers', input);
-    this.drivers = [...this.drivers, created];
-    this.notify();
-    return created;
-  }
-
-  async updateDriver(driver: Driver): Promise<Driver> {
-    const updated = await this.http.put<Driver>(`/drivers/${driver.driver_id}`, driver);
-    this.drivers = this.drivers.map((d) => (d.driver_id === updated.driver_id ? updated : d));
-    this.notify();
-    return updated;
-  }
-
-  async deleteDriver(id: Id): Promise<void> {
-    await this.http.delete<void>(`/drivers/${id}`);
-    this.drivers = this.drivers.filter((d) => d.driver_id !== id);
-    this.notify();
-  }
-
-  // --- TRUCKS ---
-  async addTruck(input: Omit<Truck, 'truck_id'>): Promise<Truck> {
-    const created = await this.http.post<Truck>('/trucks', input);
-    this.trucks = [...this.trucks, created];
-    this.notify();
-    return created;
-  }
-
-  async updateTruck(truck: Truck): Promise<Truck> {
-    const updated = await this.http.put<Truck>(`/trucks/${truck.truck_id}`, truck);
-    this.trucks = this.trucks.map((t) => (t.truck_id === updated.truck_id ? updated : t));
-    this.notify();
-    return updated;
-  }
-
-  async deleteTruck(id: Id): Promise<void> {
-    await this.http.delete<void>(`/trucks/${id}`);
-    this.trucks = this.trucks.filter((t) => t.truck_id !== id);
-    this.notify();
-  }
-
-  // --- SAFETY EVENTS ---
-  async addSafetyEvent(input: Omit<SafetyEvent, 'safety_event_id'>): Promise<SafetyEvent> {
-    const created = await this.http.post<SafetyEvent>('/safety-events', input);
-    this.safetyEvents = [...this.safetyEvents, created];
-    this.notify();
-    return created;
-  }
-
-  async deleteSafetyEvent(id: Id): Promise<void> {
-    await this.http.delete<void>(`/safety-events/${id}`);
-    this.safetyEvents = this.safetyEvents.filter((e) => e.safety_event_id !== id);
-    this.notify();
+    return saved;
   }
 }
 

@@ -76,3 +76,13 @@ export interface ScoreCardSummary {
   dispatch_score: number;
   notes: string;
 }
+
+export interface DBStoreState {
+  drivers: Driver[];
+  trucks: Truck[];
+  driver_types: DriverType[];
+  safety_categories: SafetyCategory[];
+  scorecard_metrics: ScoreCardItem[];
+  safety_events: SafetyEvent[];
+  scorecard_events: ScoreCardEvent[];
+}

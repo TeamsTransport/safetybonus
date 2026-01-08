@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db } from '../services/dbStore';
-import { ScoreCardEvent } from '../types';
+import { ScoreCardEvent, ScoreCardItem } from '../types';
 
 const Scorecards = () => {
   const deleteModalRef = useRef<HTMLDialogElement>(null);
 
+  // --- 1. State Management ---
   const [activeTab, setActiveTab] = useState<'SAFETY' | 'MAINTENANCE' | 'DISPATCH'>('SAFETY');
   const [selectedDriverId, setSelectedDriverId] = useState<number>(0);
   const [eventDate, setEventDate] = useState(new Date().toISOString().split('T')[0].substring(0, 7)); // YYYY-MM
@@ -13,15 +14,23 @@ const Scorecards = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [hasExistingGrade, setHasExistingGrade] = useState(false);
-  
-  const [dbUpdateCount, setDbUpdateCount] = useState(0);
+  const [storeTick, setStoreTick] = useState(0);
 
+  // --- 2. Store Subscription ---
+  useEffect(() => {
+    if (db.drivers.length === 0) db.init();
+    const unsubscribe = db.subscribe(() => setStoreTick(tick => tick + 1));
+    return () => unsubscribe();
+  }, []);
+
+  // --- 3. Memoized Lookups ---
   const selectedDriver = useMemo(() => 
     db.drivers.find(d => d.driver_id === selectedDriverId), 
-  [selectedDriverId]);
+  [selectedDriverId, storeTick]);
 
-  const getMetricsForCategory = (cat: 'SAFETY' | 'MAINTENANCE' | 'DISPATCH') => {
-    return db.scoreCard.filter(item => {
+  const getMetricsForCategory = (cat: string) => {
+    // Standardized to db.scorecard_metrics
+    return (db.scorecard_metrics || []).filter(item => {
       const isCorrectTab = item.sc_category === cat;
       const isGlobal = !item.driver_type_id;
       const matchesDriverType = selectedDriver && item.driver_type_id === selectedDriver.driver_type_id;
@@ -29,41 +38,52 @@ const Scorecards = () => {
     });
   };
 
-  const activeMetrics = useMemo(() => getMetricsForCategory(activeTab), [activeTab, selectedDriver]);
+  const activeMetrics = useMemo(() => getMetricsForCategory(activeTab), [activeTab, selectedDriver, storeTick]);
 
+  // Helper to find existing events for a specific driver/month/category
+  const getExistingEvents = (drvId: number, date: string, cat: string) => {
+    return (db.scorecard_events || []).filter(e => 
+      e.driver_id === drvId && 
+      e.event_date.startsWith(date) && 
+      db.scorecard_metrics.find(m => m.sc_category_id === e.sc_category_id)?.sc_category === cat
+    );
+  };
+
+  // --- 4. Stats Calculation ---
   const categoryStats = useMemo(() => {
     const cats: ('SAFETY' | 'MAINTENANCE' | 'DISPATCH')[] = ['SAFETY', 'MAINTENANCE', 'DISPATCH'];
     return cats.map(cat => {
-      if (!selectedDriverId || !eventDate) return { name: cat, label: '---', icon: null, color: 'opacity-20', bg: 'bg-base-200' };
+      if (!selectedDriverId || !eventDate) return { name: cat, label: '---', color: 'opacity-20', bg: 'bg-base-200' };
+      
       const metrics = getMetricsForCategory(cat);
-      if (metrics.length === 0) return { name: cat, label: 'N/A', icon: <i className="fa-solid fa-ban"></i>, color: 'opacity-30', bg: 'bg-base-200' };
-      const events = db.getScoreCardEvents(selectedDriverId, eventDate, cat);
+      if (metrics.length === 0) return { name: cat, label: 'N/A', color: 'opacity-30', bg: 'bg-base-200' };
+      
+      const events = getExistingEvents(selectedDriverId, eventDate, cat);
+      if (events.length === 0) return { name: cat, label: 'Pending', color: 'text-warning', bg: 'bg-warning/10' };
       
       const totalEarned = events.reduce((sum, e) => sum + e.sc_score, 0);
-      
-      if (events.length === 0) return { name: cat, label: 'Pending', icon: <i className="fa-solid fa-triangle-exclamation"></i>, color: 'text-warning', bg: 'bg-warning/10' };
-      
       const totalPossible = metrics.length * 5;
       const percentage = Math.round((totalEarned / (totalPossible || 1)) * 100);
       
-      if (percentage === 100) return { name: cat, label: '100%', icon: <i className="fa-solid fa-circle-check"></i>, color: 'text-success', bg: 'bg-success/10' };
-      if (percentage === 0) return { name: cat, label: '0%', icon: <i className="fa-solid fa-circle-xmark"></i>, color: 'text-error', bg: 'bg-error/10' };
-      
-      return { name: cat, label: `${percentage}%`, icon: <i className="fa-solid fa-circle-info"></i>, color: 'text-info', bg: 'bg-info/10' };
+      return { 
+        name: cat, 
+        label: `${percentage}%`, 
+        color: percentage >= 80 ? 'text-success' : 'text-info', 
+        bg: percentage >= 80 ? 'bg-success/10' : 'bg-info/10' 
+      };
     });
-  }, [selectedDriverId, eventDate, selectedDriver, dbUpdateCount]);
+  }, [selectedDriverId, eventDate, selectedDriver, storeTick]);
 
+  // --- 5. Effect: Load existing scores when selection changes ---
   useEffect(() => {
     if (selectedDriverId && eventDate) {
-      const existingEvents = db.getScoreCardEvents(selectedDriverId, eventDate, activeTab);
+      const existingEvents = getExistingEvents(selectedDriverId, eventDate, activeTab);
+      
       if (existingEvents.length > 0) {
         setHasExistingGrade(true);
         const newScores: Record<number, number> = {};
         existingEvents.forEach(e => newScores[e.sc_category_id] = e.sc_score);
         setOverallNotes(existingEvents[0].notes || '');
-        activeMetrics.forEach(item => { 
-          if (newScores[item.sc_category_id] === undefined) newScores[item.sc_category_id] = 0; 
-        });
         setScores(newScores);
       } else {
         setHasExistingGrade(false);
@@ -73,41 +93,42 @@ const Scorecards = () => {
         setScores(blankScores);
       }
     }
-  }, [selectedDriverId, eventDate, activeTab, activeMetrics]);
+  }, [selectedDriverId, eventDate, activeTab, activeMetrics, storeTick]);
 
+  // --- 6. Handlers ---
   const handleSubmit = async () => {
     if (selectedDriverId === 0) return;
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 600));
-    db.deleteScoreCardEvents(selectedDriverId, eventDate, activeTab);
-    activeMetrics.forEach(item => {
-      db.addScoreCardEvent({
+
+    try {
+      const payload: ScoreCardEvent[] = activeMetrics.map(item => ({
         driver_id: selectedDriverId,
         sc_category_id: item.sc_category_id,
         sc_score: scores[item.sc_category_id] ?? 0,
         event_date: `${eventDate}-01`,
         notes: overallNotes
-      });
-    });
-    setHasExistingGrade(true);
-    setIsSubmitting(false);
-    setShowSuccess(true);
-    setDbUpdateCount(prev => prev + 1);
-    setTimeout(() => setShowSuccess(false), 3000);
+      } as ScoreCardEvent));
+
+      // Standardized to a single saveScorecard call
+      await db.saveScorecard(selectedDriverId, eventDate, activeTab, payload);
+      
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (err) {
+      alert("Failed to save scorecard.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const confirmDeleteGrade = () => {
-    db.deleteScoreCardEvents(selectedDriverId, eventDate, activeTab);
-    setHasExistingGrade(false);
-    setOverallNotes('');
-    const blankScores: Record<number, number> = {};
-    activeMetrics.forEach(item => blankScores[item.sc_category_id] = 0);
-    setScores(blankScores);
-    setDbUpdateCount(prev => prev + 1);
-    deleteModalRef.current?.close();
+  const confirmDeleteGrade = async () => {
+    try {
+      await db.deleteScorecard(selectedDriverId, eventDate, activeTab);
+      deleteModalRef.current?.close();
+    } catch (err) {
+      alert("Delete failed.");
+    }
   };
-
-  const getDriver = (id: number) => db.drivers.find(d => d.driver_id === id);
 
   return (
     <div className="space-y-6">

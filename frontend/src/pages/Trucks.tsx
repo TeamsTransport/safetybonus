@@ -1,14 +1,16 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
-import { Truck, Driver, TruckHistoryEvent } from '../types';
+import { Truck, Driver } from '../types';
 
 const Trucks = () => {
+  // --- 1. State Management ---
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
   const [historyTruck, setHistoryTruck] = useState<Truck | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [drivers, setDrivers] = useState<Driver[]>(db.drivers);
-  const [trucks, setTrucks] = useState<Truck[]>(db.trucks);
+  
+  // Local state synced with store
+  const [drivers, setDrivers] = useState<Driver[]>(db.drivers || []);
+  const [trucks, setTrucks] = useState<Truck[]>(db.trucks || []);
   
   const [formData, setFormData] = useState<Omit<Truck, 'truck_id'>>({
     unit_number: '',
@@ -16,6 +18,18 @@ const Trucks = () => {
     status: 'available'
   });
 
+  // --- 2. Reactivity via Subscription ---
+  useEffect(() => {
+    if (db.trucks.length === 0) db.init();
+
+    const unsubscribe = db.subscribe(() => {
+      setDrivers([...db.drivers]);
+      setTrucks([...db.trucks]);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- 3. View Helpers ---
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'available': return 'badge-success';
@@ -25,55 +39,77 @@ const Trucks = () => {
     }
   };
 
-  const refreshData = () => {
-    setDrivers([...db.drivers]);
-    setTrucks([...db.trucks]);
-  };
+  // --- 4. Event Handlers ---
 
   const handleOpenAssignModal = (truck: Truck) => {
     setSelectedTruck(truck);
-    (window as any).assign_modal?.showModal();
+    (document.getElementById('assign_modal') as any)?.showModal();
   };
 
   const handleOpenHistoryModal = (truck: Truck) => {
     setHistoryTruck(truck);
-    (window as any).history_modal?.showModal();
+    (document.getElementById('history_modal') as any)?.showModal();
   };
 
-  const handleAssignDriver = (driverId: number | null) => {
+  const handleAssignDriver = async (driverId: number | null) => {
     if (!selectedTruck) return;
-    db.assignDriverToTruck(driverId, selectedTruck.truck_id);
-    refreshData();
-    (window as any).assign_modal?.close();
-    setSelectedTruck(null);
+    try {
+      // Logic inside dbStore should update both driver and truck status
+      await db.assignDriverToTruck(driverId, selectedTruck.truck_id);
+      
+      (document.getElementById('assign_modal') as any)?.close();
+      setSelectedTruck(null);
+    } catch (err) {
+      alert("Failed to assign driver.");
+    }
   };
 
-  const handleSaveTruck = () => {
-    if (!formData.unit_number) {
+  const handleSaveTruck = async () => {
+    if (!formData.unit_number.trim()) {
       alert('Unit Number is required');
       return;
     }
-    db.addTruck(formData);
-    setFormData({ unit_number: '', year: new Date().getFullYear(), status: 'available' });
-    refreshData();
-    (window as any).truck_modal?.close();
-  };
 
-  const handleDeleteTruck = (id: number) => {
-    if (confirm('Permanently remove this unit from the fleet database?')) {
-      db.deleteTruck(id);
-      refreshData();
+    try {
+      // Using the unified save pattern (Upsert)
+      await db.saveTruck(formData as Truck);
+      
+      setFormData({ unit_number: '', year: new Date().getFullYear(), status: 'available' });
+      (document.getElementById('truck_modal') as any)?.close();
+    } catch (err) {
+      alert("Failed to save truck.");
     }
   };
 
-  const filteredTrucks = trucks.filter(t => {
-    const assignedDriver = drivers.find(d => d.truck_id === t.truck_id);
-    const driverName = assignedDriver ? `${assignedDriver.first_name} ${assignedDriver.last_name}` : '';
-    return t.unit_number.toLowerCase().includes(searchTerm.toLowerCase()) || 
-           driverName.toLowerCase().includes(searchTerm.toLowerCase());
-  });
+  const handleDeleteTruck = async (id: number) => {
+    if (window.confirm('Permanently remove this unit from the fleet database?')) {
+      try {
+        await db.deleteTruck(id);
+      } catch (err) {
+        alert("Failed to delete truck.");
+      }
+    }
+  };
 
-  const truckHistory = historyTruck ? db.getTruckHistory(historyTruck.truck_id) : [];
+  // --- 5. Memoized Filtering ---
+  const filteredTrucks = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return trucks.filter(t => {
+      const assignedDriver = drivers.find(d => d.truck_id === t.truck_id);
+      const driverName = assignedDriver 
+        ? `${assignedDriver.first_name} ${assignedDriver.last_name}`.toLowerCase() 
+        : '';
+        
+      return t.unit_number.toLowerCase().includes(term) || driverName.includes(term);
+    });
+  }, [trucks, drivers, searchTerm]);
+
+  // Handle history lookup locally if not provided by backend endpoint
+  const truckHistory = useMemo(() => {
+    if (!historyTruck) return [];
+    // If you have a truck_history array in dbStore:
+    return (db as any).truck_history?.filter((h: any) => h.truck_id === historyTruck.truck_id) || [];
+  }, [historyTruck, storeTick]); // storeTick would be needed if history is dynamic
 
   return (
     <div className="space-y-6">

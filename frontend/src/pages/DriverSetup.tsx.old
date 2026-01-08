@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { db } from '../services/dbStore';
-import { Driver } from '../types';
+import { Driver, Truck } from '../types';
 
 const DriverSetup = () => {
   const [drivers, setDrivers] = useState<Driver[]>(db.drivers);
@@ -9,41 +10,40 @@ const DriverSetup = () => {
   const [truckSearch, setTruckSearch] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Standardized formData to match Go/DB snake_case
   const [formData, setFormData] = useState<Omit<Driver, 'driver_id'>>({
     driver_code: '',
     first_name: '',
     last_name: '',
     start_date: new Date().toISOString().split('T')[0],
     truck_id: null,
-    driver_type_id: 2, // Standardizes to ID
+    driver_type_id: 2,
     profile_pic: ''
   });
 
   useEffect(() => {
-    if (db.drivers.length === 0) db.init();
-    
+    if (db.drivers.length === 0) {
+      db.init();
+    }
+
     const unsubscribe = db.subscribe(() => {
       setDrivers([...db.drivers]);
     });
     return () => unsubscribe();
   }, []);
 
-  // Updated to use db.trucks (snake_case)
   const availableTrucks = useMemo(() => {
-    const list = db.trucks || [];
-    return list.filter(t => 
+    return db.trucks.filter(t => 
       t.status !== 'assigned' || (editingDriver && t.truck_id === editingDriver.truck_id)
     ).filter(t => 
       t.unit_number.toLowerCase().includes(truckSearch.toLowerCase())
     );
-  }, [drivers, editingDriver, truckSearch]); // Triggers when drivers change (assignments change)
+  }, [db.trucks, editingDriver, truckSearch]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 1024 * 1024) {
-        alert("Image is too large (1MB limit).");
+      if (file.size > 1024 * 1024) { // 1MB limit for localStorage sanity
+        alert("Image is too large. Please select an image under 1MB.");
         return;
       }
       const reader = new FileReader();
@@ -61,39 +61,30 @@ const DriverSetup = () => {
     }
 
     try {
-      let saved: Driver;
-      
       if (editingDriver) {
-        // Use the simplified save logic in the new dbStore
-        saved = await db.saveDriver({ 
-          ...formData, 
-          driver_id: editingDriver.driver_id 
-        } as Driver);
+        await db.updateDriver({ ...formData, driver_id: editingDriver.driver_id });
       } else {
-        saved = await db.saveDriver(formData as Driver);
+        await db.addDriver(formData);
       }
 
-      // FIX: Assignment logic now uses the 'saved' variable returned from Go
+      // Handle Truck Assignment Sync
       if (formData.truck_id) {
-        // If your dbStore has an assign function, use the ID from the server response
-        if (typeof (db as any).assignDriverToTruck === 'function') {
-          await (db as any).assignDriverToTruck(saved.driver_id, formData.truck_id);
-        }
+        db.assignDriverToTruck(savedDriverId, formData.truck_id);
+      } else if (editingDriver?.truck_id) {
+        // If we cleared the truck, mark the old one as available
+        db.assignDriverToTruck(null, editingDriver.truck_id);
       }
 
       resetForm();
-      // Use standard DOM query if driver_modal isn't on window
-      const modal = document.getElementById('driver_modal') as any;
-      modal?.close();
-      
+      (window as any).driver_modal?.close();
+      // UI auto-updates via the useEffect subscription
     } catch (error) {
       console.error("Save error:", error);
-      alert("Failed to save driver. Check backend connection.");
+      alert("Failed to save driver. Please verify your connection.");
     }
   };
 
   const resetForm = () => {
-    setEditingDriver(null);
     setFormData({
       driver_code: '',
       first_name: '',
@@ -118,12 +109,11 @@ const DriverSetup = () => {
       driver_type_id: driver.driver_type_id,
       profile_pic: driver.profile_pic || ''
     });
-    const modal = document.getElementById('driver_modal') as any;
-    modal?.showModal();
+    (window as any).driver_modal?.showModal();
   };
 
   const handleDelete = async (id: number) => {
-    if (window.confirm('Permanently delete this driver?')) {
+    if (confirm('Permanently delete this driver? All safety events and scorecards linked to this driver will also be removed.')) {
       try {
         await db.deleteDriver(id);
       } catch (error) {

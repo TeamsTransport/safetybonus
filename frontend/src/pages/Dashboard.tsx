@@ -1,32 +1,51 @@
-
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend 
 } from 'recharts';
 import { db } from '../services/dbStore';
 
 const Dashboard = () => {
-  const drivers = db.drivers;
-  const events = db.safetyEvents;
+  // --- 1. Reactivity via Subscription ---
+  const [dataLoaded, setDataLoaded] = useState(0);
 
-  // --- Aggregate Stats ---
+  useEffect(() => {
+    if (db.drivers.length === 0) db.init();
+    
+    // Subscribe to force re-render when bootstrap completes
+    const unsubscribe = db.subscribe(() => {
+      setDataLoaded(prev => prev + 1);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- 2. Local State Aliases (Standardized snake_case) ---
+  const drivers = db.drivers || [];
+  const events = db.safety_events || []; // Changed from safetyEvents
+  const trucks = db.trucks || [];
+
+  // --- 3. Aggregate Stats ---
   const totalEvents = events.length;
-  const activeTrucks = db.trucks.filter(t => t.status === 'assigned').length;
+  const activeTrucks = trucks.filter(t => t.status === 'assigned').length;
   
   const avgBonusScore = useMemo(() => {
     if (totalEvents === 0) return 0;
-    return events.reduce((s, e) => s + (Number(e.bonus_score) || 0), 0) / totalEvents;
+    const totalScore = events.reduce((s, e) => s + (Number(e.bonus_score) || 0), 0);
+    return (totalScore / totalEvents).toFixed(1);
   }, [events, totalEvents]);
 
-  // --- Dynamic Risk Profile Calculation ---
+  // --- 4. Dynamic Risk Profile Calculation ---
   const riskProfileData = useMemo(() => {
     let low = 0, med = 0, high = 0;
     
     drivers.forEach(driver => {
-      const stats = db.getDriverStats(driver.driver_id);
-      if (stats.totalBonusScore > 10) high++;
-      else if (stats.totalBonusScore > 5) med++;
+      // FIX: Since db.getDriverStats doesn't exist in the store, 
+      // we calculate it locally using standardized keys
+      const driverEvents = events.filter(e => e.driver_id === driver.driver_id);
+      const score = driverEvents.reduce((sum, e) => sum + (e.bonus_score || 0), 0);
+      
+      if (score > 10) high++;
+      else if (score > 5) med++;
       else low++;
     });
 
@@ -38,14 +57,14 @@ const Dashboard = () => {
     ];
   }, [drivers, events]);
 
-  // --- Logic for Weekly Trend of Top 5 Safety Events (3 Month Period) ---
+  // --- 5. Weekly Trend (3 Month Period) ---
   const trendData = useMemo(() => {
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
     const recentEvents = events.filter(e => new Date(e.event_date) >= threeMonthsAgo);
 
-    // 1. Identify Top 5 Categories by frequency
+    // Identify Top 5 Categories (snake_case)
     const categoryCounts: Record<number, number> = {};
     recentEvents.forEach(e => {
       categoryCounts[e.category_id] = (categoryCounts[e.category_id] || 0) + 1;
@@ -58,10 +77,10 @@ const Dashboard = () => {
 
     const top5Details = top5CategoryIds.map(id => ({
       id,
-      code: db.safetyCategories.find(c => c.category_id === id)?.code || `CAT-${id}`
+      code: db.safety_categories.find(c => c.category_id === id)?.code || `CAT-${id}`
     }));
 
-    // 2. Generate 12 weeks of data points
+    // Generate 12 weeks of data points
     const weeks: any[] = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date();
@@ -88,10 +107,12 @@ const Dashboard = () => {
       weeks.push(dataPoint);
     }
     return { weeks, top5Details };
-  }, [events, db.safetyCategories]);
+  }, [events, db.safety_categories]);
 
   const recentLogs = useMemo(() => {
-    return [...events].sort((a, b) => b.event_date.localeCompare(a.event_date)).slice(0, 5);
+    return [...events]
+      .sort((a, b) => b.event_date.localeCompare(a.event_date))
+      .slice(0, 5);
   }, [events]);
 
   const lineColors = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];

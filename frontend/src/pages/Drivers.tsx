@@ -1,26 +1,33 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
 import { Driver } from '../types';
 
 const Drivers = () => {
   // --- 1. Reactivity via Subscription ---
+  // Standardized to use the 'drivers' array from the store
   const [drivers, setDrivers] = useState<Driver[]>(db.drivers);
   const [typeFilter, setTypeFilter] = useState<number | 'all'>('all');
 
   useEffect(() => {
+    // Only initialize if the store is empty
     if (db.drivers.length === 0) {
       db.init();
     }
-    // Listen for any CRUD changes from the Go backend via the store
+    
+    // Subscribe to the store so any updates in dbStore (like applyBootstrap) 
+    // trigger a re-render here
     const unsubscribe = db.subscribe(() => {
       setDrivers([...db.drivers]);
     });
+    
     return () => unsubscribe();
   }, []);
 
+  // --- 2. Helper: Date Formatting ---
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
+    // Using 'sv-SE' often gives a cleaner YYYY-MM-DD format if preferred, 
+    // but sticking to US Short for standard roster views
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -28,19 +35,39 @@ const Drivers = () => {
     });
   };
 
-  // --- 2. Score & Status Calculation (Restored from .old) ---
+  // --- 3. Calculation: Score & Status (Standardized to snake_case) ---
   const getDriverStats = (driverId: number) => {
-    const safetyEvents = db.safetyEvents.filter(e => e.driver_id === driverId);
-    const totalBonusScore = safetyEvents.reduce((sum, event) => sum + event.bonus_score, 0);
+    // FIX: Changed from db.safetyEvents to db.safety_events
+    // Adding || [] ensures we don't crash if the backend sends null
+    const events = (db.safety_events || []).filter(e => e.driver_id === driverId);
+    
+    const totalBonusScore = events.reduce((sum, event) => sum + (event.bonus_score || 0), 0);
+    
+    // Logic remains: status shifts to 'Warning' if they accumulate more than 5 points
     const status = totalBonusScore > 5 ? 'Warning' : 'Good';  
+    
     return { totalBonusScore, status };
   };
 
+  // --- 4. Memoized Filtering ---
   const filteredDrivers = useMemo(() => {
-    return typeFilter === 'all' 
-      ? drivers 
-      : drivers.filter(d => d.driver_type_id === typeFilter);
+    const list = drivers || [];
+    if (typeFilter === 'all') return list;
+    
+    return list.filter(d => d.driver_type_id === typeFilter);
   }, [drivers, typeFilter]);
+
+  // --- 5. Roster Helpers (Used in JSX) ---
+  const getDriverTypeLabel = (typeId: number | null) => {
+    // FIX: Changed from db.driverTypes to db.driver_types
+    const type = (db.driver_types || []).find(t => t.driver_type_id === typeId);
+    return type ? type.driver_type : 'Unassigned';
+  };
+
+  const getTruckUnitNumber = (truckId: number | null) => {
+    const truck = (db.trucks || []).find(t => t.truck_id === truckId);
+    return truck ? `Unit ${truck.unit_number}` : 'None';
+  };
 
   return (
     <div className="space-y-6">
