@@ -50,6 +50,7 @@ export class DBStore implements DBStoreState {
   private http = new HttpClient('http://localhost:8080/api');
 
   async init() {
+    console.log("LOG: dbStore.init() was triggered by the component.");
     try {
       const data = await this.http.get<any>('/bootstrap');
       this.applyBootstrap(data);

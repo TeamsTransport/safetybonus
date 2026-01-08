@@ -133,10 +133,15 @@ const DriverSetup = () => {
   };
 
   const filteredDrivers = useMemo(() => {
-    return drivers.filter(d => 
-      `${d.first_name} ${d.last_name} ${d.driver_code}`
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase())
+    const list = drivers || [];
+    const term = searchTerm.toLowerCase().trim();
+
+    if (!term) return list;
+
+    return list.filter(d => 
+      d.first_name.toLowerCase().includes(term) ||
+      d.last_name.toLowerCase().includes(term) ||
+      d.driver_code.toLowerCase().includes(term)
     );
   }, [drivers, searchTerm]);
 
