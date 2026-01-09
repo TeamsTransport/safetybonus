@@ -62,7 +62,6 @@ const DriverSetup = () => {
 
     try {
       let saved: Driver;
-      
       if (editingDriver) {
         saved = await db.saveDriver({ 
           ...formData, 
@@ -72,14 +71,15 @@ const DriverSetup = () => {
         saved = await db.saveDriver(formData as Driver);
       }
 
-      if (formData.truck_id) {
+      const hasTruckChanged = editingDriver?.truck_id !== formData.truck_id;
+      
+      if (hasTruckChanged) {
         if (typeof (db as any).assignDriverToTruck === 'function') {
           await (db as any).assignDriverToTruck(saved.driver_id, formData.truck_id);
         }
       }
 
       resetForm();
-      // Use standard DOM query if driver_modal isn't on window
       const modal = document.getElementById('driver_modal') as any;
       modal?.close();
       

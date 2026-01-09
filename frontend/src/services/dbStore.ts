@@ -92,55 +92,32 @@ export class DBStore implements DBStoreState {
   }
 
   // Example Helper: Save Driver
-  async saveDriver(driver: Driver): Promise<Driver> {
-    const saved = driver.driver_id 
-      ? await this.http.put<Driver>(`/drivers/${driver.driver_id}`, driver)
-      : await this.http.post<Driver>('/drivers', driver);
-    
-    if (driver.driver_id) {
-      this.drivers = this.drivers.map(d => d.driver_id === saved.driver_id ? saved : d);
-    } else {
-      this.drivers = [...this.drivers, saved];
-    }
-
-    this.trucks = this.trucks.map(t => {
-      if (t.truck_id === saved.truck_id) {
-        return { ...t, status: 'assigned' };
-      }
-      return t;
-    });
-
-    this.notify(); 
-    return saved;
-  }
-
   async assignDriverToTruck(driverId: number, truckId: number | null) {
     try {
-      const response = await this.http.post<any>(`/drivers/${driverId}/assign-truck`, {
+      await this.http.post<any>(`/drivers/${driverId}/assign-truck`, {
         truck_id: truckId
+      });
+
+      this.trucks = this.trucks.map(t => {
+        if (truckId && t.truck_id === truckId) {
+          return { ...t, status: 'assigned' };
+        }
+
+        const driver = this.drivers.find(d => d.driver_id === driverId);
+        if (driver && t.truck_id === driver.truck_id && t.truck_id !== truckId) {
+          return { ...t, status: 'available' };
+        }
+
+        return t;
       });
 
       this.drivers = this.drivers.map(d => 
         d.driver_id === driverId ? { ...d, truck_id: truckId } : d
       );
 
-      this.trucks = this.trucks.map(t => {
-        if (t.truck_id === truckId) {
-          return { ...t, status: 'assigned' };
-        }
-        const wasPreviousTruck = this.drivers.find(d => d.driver_id === driverId)?.truck_id === t.truck_id;
-        if (wasPreviousTruck && t.truck_id !== truckId) {
-          return { ...t, status: 'available' };
-        }
-        return t;
-      });
-
-      this.notify();
-      
-      return response;
+      this.notify(); 
     } catch (err) {
-      console.error("Failed to assign truck:", err);
-      throw err;
+      console.error("Assignment failed", err);
     }
   }
 }
