@@ -32,12 +32,12 @@ const DriverSetup = () => {
   // Updated to use db.trucks (snake_case)
   const availableTrucks = useMemo(() => {
     const list = (db.trucks || []);
+    
+    // Only filter by assignment status, remove the truckSearch filter line
     return list.filter(t => 
       t.status !== 'assigned' || (editingDriver && t.truck_id === editingDriver.truck_id)
-    ).filter(t => 
-      t.unit_number.toLowerCase().includes(truckSearch.toLowerCase())
     );
-  }, [drivers, editingDriver, truckSearch]); // Triggers when drivers change (assignments change)
+  }, [db.trucks, editingDriver]); // Updated dependency to db.trucks
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -350,7 +350,6 @@ const DriverSetup = () => {
             <div className="form-control col-span-2">
               <label className="label font-bold text-xs uppercase opacity-70">Asset / Truck Assignment</label>
               <div className="flex flex-col gap-2">
-                {/*
                 <input 
                   type="text" 
                   placeholder="Filter available trucks..." 
@@ -358,7 +357,6 @@ const DriverSetup = () => {
                   value={truckSearch}
                   onChange={e => setTruckSearch(e.target.value)}
                 />
-                */}
                 <select 
                   className="select select-bordered w-full"
                   value={formData.truck_id || ""}
