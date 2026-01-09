@@ -4,6 +4,7 @@ import { Driver } from '../types';
 
 const DriverSetup = () => {
   const [drivers, setDrivers] = useState<Driver[]>(db.drivers || []);
+  const [trucks, setTrucks] = useState(db.trucks || []);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [truckSearch, setTruckSearch] = useState('');
@@ -25,19 +26,18 @@ const DriverSetup = () => {
     
     const unsubscribe = db.subscribe(() => {
       setDrivers([...db.drivers]);
+      setTrucks([...db.trucks]);
     });
     return () => unsubscribe();
   }, []);
 
   // Updated to use db.trucks (snake_case)
   const availableTrucks = useMemo(() => {
-    const list = (db.trucks || []);
-    
-    // Only filter by assignment status, remove the truckSearch filter line
+    const list = trucks || [];
     return list.filter(t => 
       t.status !== 'assigned' || (editingDriver && t.truck_id === editingDriver.truck_id)
     );
-  }, [db.trucks, editingDriver]); // Updated dependency to db.trucks
+  }, [trucks, editingDriver]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
