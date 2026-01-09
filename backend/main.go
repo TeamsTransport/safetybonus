@@ -96,6 +96,7 @@ func main() {
         api.PUT("/drivers/:id", updateDriver)
         api.DELETE("/drivers/:id", deleteDriver)
         api.GET("/drivers/:id/stats", getDriverStats)
+        api.POST("/drivers/:id/assign-truck", assignDriverToTruckHandler)
 
         // Driver types
         api.GET("/driver-types", getDriverTypes)

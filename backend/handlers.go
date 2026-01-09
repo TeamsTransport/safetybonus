@@ -526,6 +526,49 @@ func deleteTruck(c *gin.Context) {
     c.Status(http.StatusNoContent)
 }
 
+type AssignTruckRequest struct {
+    TruckID *int `json:"truck_id"`
+}
+
+func assignDriverToTruckHandler(c *gin.Context) {
+    driverID := c.Param("id")
+    var req struct {
+        TruckID *int `json:"truck_id"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(400, gin.H{"error": "Invalid request"})
+        return
+    }
+
+    tx, err := db.Begin()
+    if err != nil {
+        c.JSON(500, gin.H{"error": "Database error"})
+        return
+    }
+
+    // A. Find the OLD truck first so we can mark it as available later
+    var oldTruckID sql.NullInt64
+    tx.QueryRow("SELECT truck_id FROM drivers WHERE driver_id = ?", driverID).Scan(&oldTruckID)
+
+    // B. Update the Driver's new assignment
+    _, err = tx.Exec("UPDATE drivers SET truck_id = ? WHERE driver_id = ?", req.TruckID, driverID)
+    
+    // C. Mark the NEW truck as 'assigned'
+    if req.TruckID != nil {
+        tx.Exec("UPDATE trucks SET status = 'assigned' WHERE truck_id = ?", *req.TruckID)
+    }
+
+    // D. Mark the OLD truck as 'available'
+    if oldTruckID.Valid && (req.TruckID == nil || int64(*req.TruckID) != oldTruckID.Int64) {
+        tx.Exec("UPDATE trucks SET status = 'available' WHERE truck_id = ?", oldTruckID.Int64)
+    }
+
+    tx.Commit()
+
+    c.JSON(200, gin.H{"status": "success", "truck_id": req.TruckID})
+}
+
 func assignDriverToTruck(c *gin.Context) {
     truckID := atoi(c.Param("id"))
     var body struct {
