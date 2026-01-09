@@ -135,7 +135,6 @@ func main() {
         api.POST("/scorecard-events", createScoreCardEvent)
         api.PUT("/scorecard-events/:id", updateScoreCardEvent)
         api.DELETE("/scorecard-events/:id", deleteScoreCardEvent)
-        // Filtered bulk delete (matches client usage: DELETE /scorecard-events?driverId=&datePrefix=&category=)
         api.DELETE("/scorecard-events", deleteScoreCardEventsByFilter)
     }
 

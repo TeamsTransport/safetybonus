@@ -532,41 +532,55 @@ type AssignTruckRequest struct {
 
 func assignDriverToTruckHandler(c *gin.Context) {
     driverID := c.Param("id")
+    
+    // Using *int (pointer) allows this field to be 'nil' if JSON is { "truck_id": null }
     var req struct {
         TruckID *int `json:"truck_id"`
     }
 
     if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(400, gin.H{"error": "Invalid request"})
+        c.JSON(400, gin.H{"error": "Invalid request payload"})
         return
     }
 
+    // Start transaction
     tx, err := db.Begin()
     if err != nil {
-        c.JSON(500, gin.H{"error": "Database error"})
+        c.JSON(500, gin.H{"error": "Failed to start transaction"})
         return
     }
 
-    // A. Find the OLD truck first so we can mark it as available later
+    // A. Identify the driver's CURRENT truck before we change it
     var oldTruckID sql.NullInt64
     tx.QueryRow("SELECT truck_id FROM drivers WHERE driver_id = ?", driverID).Scan(&oldTruckID)
 
-    // B. Update the Driver's new assignment
+    // B. Update the Driver (sets truck_id to NULL if req.TruckID is nil)
     _, err = tx.Exec("UPDATE drivers SET truck_id = ? WHERE driver_id = ?", req.TruckID, driverID)
-    
-    // C. Mark the NEW truck as 'assigned'
+    if err != nil {
+        tx.Rollback()
+        c.JSON(500, gin.H{"error": "Failed to update driver record"})
+        return
+    }
+
+    // C. If a NEW truck was assigned, mark it as 'assigned'
     if req.TruckID != nil {
         tx.Exec("UPDATE trucks SET status = 'assigned' WHERE truck_id = ?", *req.TruckID)
     }
 
-    // D. Mark the OLD truck as 'available'
-    if oldTruckID.Valid && (req.TruckID == nil || int64(*req.TruckID) != oldTruckID.Int64) {
-        tx.Exec("UPDATE trucks SET status = 'available' WHERE truck_id = ?", oldTruckID.Int64)
+    // D. If the driver HAD a truck and it's different from the new one, mark the OLD one as 'available'
+    if oldTruckID.Valid {
+        isDifferent := req.TruckID == nil || int64(*req.TruckID) != oldTruckID.Int64
+        if isDifferent {
+            tx.Exec("UPDATE trucks SET status = 'available' WHERE truck_id = ?", oldTruckID.Int64)
+        }
     }
 
-    tx.Commit()
+    if err := tx.Commit(); err != nil {
+        c.JSON(500, gin.H{"error": "Transaction commit failed"})
+        return
+    }
 
-    c.JSON(200, gin.H{"status": "success", "truck_id": req.TruckID})
+    c.JSON(200, gin.H{"status": "success", "assigned_truck_id": req.TruckID})
 }
 
 func assignDriverToTruck(c *gin.Context) {
