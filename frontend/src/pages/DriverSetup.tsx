@@ -64,7 +64,6 @@ const DriverSetup = () => {
       let saved: Driver;
       
       if (editingDriver) {
-        // Use the simplified save logic in the new dbStore
         saved = await db.saveDriver({ 
           ...formData, 
           driver_id: editingDriver.driver_id 
@@ -73,9 +72,7 @@ const DriverSetup = () => {
         saved = await db.saveDriver(formData as Driver);
       }
 
-      // FIX: Assignment logic now uses the 'saved' variable returned from Go
       if (formData.truck_id) {
-        // If your dbStore has an assign function, use the ID from the server response
         if (typeof (db as any).assignDriverToTruck === 'function') {
           await (db as any).assignDriverToTruck(saved.driver_id, formData.truck_id);
         }
