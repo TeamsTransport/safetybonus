@@ -533,7 +533,6 @@ type AssignTruckRequest struct {
 func assignDriverToTruckHandler(c *gin.Context) {
     driverID := c.Param("id")
     
-    // Using *int (pointer) allows this field to be 'nil' if JSON is { "truck_id": null }
     var req struct {
         TruckID *int `json:"truck_id"`
     }
@@ -543,7 +542,6 @@ func assignDriverToTruckHandler(c *gin.Context) {
         return
     }
 
-    // Start transaction
     tx, err := db.Begin()
     if err != nil {
         c.JSON(500, gin.H{"error": "Failed to start transaction"})
@@ -562,16 +560,24 @@ func assignDriverToTruckHandler(c *gin.Context) {
         return
     }
 
-    // C. If a NEW truck was assigned, mark it as 'assigned'
+    // C. If a NEW truck was assigned, mark it as 'assigned' and log history
     if req.TruckID != nil {
         tx.Exec("UPDATE trucks SET status = 'assigned' WHERE truck_id = ?", *req.TruckID)
+        
+        _, _ = tx.Exec(`INSERT INTO truck_history (truck_id, driver_id, type, notes, date) 
+                        VALUES (?, ?, 'assignment', ?, ?)`,
+            *req.TruckID, driverID, fmt.Sprintf("Driver %s assigned via Driver Setup", driverID), time.Now().In(localTZ))
     }
 
-    // D. If the driver HAD a truck and it's different from the new one, mark the OLD one as 'available'
+    // D. If the driver HAD a truck and it's different from the new one, mark the OLD one as 'available' and log history
     if oldTruckID.Valid {
         isDifferent := req.TruckID == nil || int64(*req.TruckID) != oldTruckID.Int64
         if isDifferent {
             tx.Exec("UPDATE trucks SET status = 'available' WHERE truck_id = ?", oldTruckID.Int64)
+            
+            _, _ = tx.Exec(`INSERT INTO truck_history (truck_id, driver_id, type, notes, date) 
+                            VALUES (?, NULL, 'status_change', ?, ?)`,
+                oldTruckID.Int64, fmt.Sprintf("Driver %s unassigned or moved to another unit", driverID), time.Now().In(localTZ))
         }
     }
 
@@ -583,31 +589,36 @@ func assignDriverToTruckHandler(c *gin.Context) {
     c.JSON(200, gin.H{"status": "success", "assigned_truck_id": req.TruckID})
 }
 
-func assignDriverToTruck(c *gin.Context) {
+func assignTruckToDriver(c *gin.Context) {
+    // Get Truck ID from URL parameter /trucks/:id/assign-driver
     truckID := atoi(c.Param("id"))
+    
+    // Updated struct tag to "driver_id" to match standard frontend naming
     var body struct {
-        DriverId *int `json:"driverId"`
+        DriverID *int `json:"driver_id"` 
     }
+    
     if err := c.ShouldBindJSON(&body); err != nil {
-        c.JSON(http.StatusBadRequest, APIError{Message: err.Error()})
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
     ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
     defer cancel()
 
-    // Clear any driver currently assigned to this truck
+    // 1. Clear any driver currently assigned to this truck
     _, _ = exec(ctx, `UPDATE drivers SET truck_id=NULL WHERE truck_id=?`, truckID)
 
     var updatedDriver *Driver
-    if body.DriverId != nil {
-        // Link new driver
-        if _, err := exec(ctx, `UPDATE drivers SET truck_id=? WHERE driver_id=?`, truckID, *body.DriverId); err != nil {
-            c.JSON(http.StatusInternalServerError, APIError{Message: err.Error()})
+    if body.DriverID != nil {
+        // 2. Link new driver to this truck
+        if _, err := exec(ctx, `UPDATE drivers SET truck_id=? WHERE driver_id=?`, truckID, *body.DriverID); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
-        // Fetch driver
-        row := db.QueryRowContext(ctx, `SELECT driver_id, driver_code, first_name, last_name, start_date, truck_id, driver_type_id, profile_pic FROM drivers WHERE driver_id=?`, *body.DriverId)
+
+        // 3. Fetch updated driver details to return to frontend
+        row := db.QueryRowContext(ctx, `SELECT driver_id, driver_code, first_name, last_name, start_date, truck_id, driver_type_id, profile_pic FROM drivers WHERE driver_id=?`, *body.DriverID)
         var d Driver
         var (
             startDateNullable sql.NullTime
@@ -615,47 +626,48 @@ func assignDriverToTruck(c *gin.Context) {
             typeIDNullable    sql.NullInt64
             picNullable       sql.NullString
         )
+        
         if err := row.Scan(&d.DriverID, &d.DriverCode, &d.FirstName, &d.LastName, &startDateNullable, &truckIDNullable, &typeIDNullable, &picNullable); err == nil {
-            if startDateNullable.Valid {
-                d.StartDate = formatLocalDate(startDateNullable.Time)
-            }
-            if truckIDNullable.Valid {
+            if startDateNullable.Valid { d.StartDate = formatLocalDate(startDateNullable.Time) }
+            if truckIDNullable.Valid { 
                 val := int(truckIDNullable.Int64)
-                d.TruckID = &val
+                d.TruckID = &val 
             }
             if typeIDNullable.Valid {
                 val := int(typeIDNullable.Int64)
                 d.DriverTypeID = &val
             }
-            if picNullable.Valid {
-                val := picNullable.String
-                d.ProfilePic = &val
-            }
+            if picNullable.Valid { d.ProfilePic = &picNullable.String }
             updatedDriver = &d
-        } else {
-            log.Printf("AssignDriverToTruck: failed to fetch driver details after update: %v", err)
         }
-        // Set truck status
+
+        // 4. Update Truck Status
         _, _ = exec(ctx, `UPDATE trucks SET status='assigned' WHERE truck_id=?`, truckID)
 
-        // Log history
-        _, _ = exec(ctx, `INSERT INTO truck_history (truck_id, driver_id, type, notes, date) VALUES (?, ?, 'assignment', ?, ?)`,
-            truckID, body.DriverId, fmt.Sprintf("Assigned driver ID %d", *body.DriverId), time.Now().In(localTZ))
+        // 5. Log History for assignment
+        _, _ = exec(ctx, `INSERT INTO truck_history (truck_id, driver_id, type, notes, date) 
+                         VALUES (?, ?, 'assignment', ?, ?)`,
+            truckID, body.DriverID, fmt.Sprintf("Assigned driver ID %d", *body.DriverID), time.Now().In(localTZ))
     } else {
-        // No driver: mark truck as available
+        // 6. Handle Unassignment: No driver provided
         _, _ = exec(ctx, `UPDATE trucks SET status='available' WHERE truck_id=?`, truckID)
-        _, _ = exec(ctx, `INSERT INTO truck_history (truck_id, driver_id, type, notes, date) VALUES (?, NULL, 'status_change', 'Unassigned driver', ?)`,
+        _, _ = exec(ctx, `INSERT INTO truck_history (truck_id, driver_id, type, notes, date) 
+                         VALUES (?, NULL, 'status_change', 'Unassigned driver', ?)`,
             truckID, time.Now().In(localTZ))
     }
 
-    // Return updated truck
+    // 7. Fetch updated truck details to return to frontend
     row := db.QueryRowContext(ctx, `SELECT truck_id, unit_number, year, status FROM trucks WHERE truck_id=?`, truckID)
     var t Truck
     if err := row.Scan(&t.TruckID, &t.UnitNumber, &t.Year, &t.Status); err != nil {
-        c.JSON(http.StatusInternalServerError, APIError{Message: err.Error()})
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
-    c.JSON(http.StatusOK, gin.H{"driver": updatedDriver, "truck": t})
+
+    c.JSON(http.StatusOK, gin.H{
+        "driver": updatedDriver,
+        "truck":  t,
+    })
 }
 
 // --- Truck history ---

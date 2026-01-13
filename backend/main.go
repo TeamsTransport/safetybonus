@@ -110,7 +110,7 @@ func main() {
         api.PUT("/trucks/:id", updateTruck)
         api.DELETE("/trucks/:id", deleteTruck)
         api.GET("/trucks/:id/history", getTruckHistory)
-        api.POST("/drivers/:id/assign-truck", assignDriverToTruckHandler)
+        api.POST("/trucks/:id/assign-driver", assignTruckToDriver)
 
         // Safety categories
         api.GET("/safety-categories", getSafetyCategories)

@@ -155,6 +155,13 @@ export class DBStore implements DBStoreState {
     this.drivers = this.drivers.filter(d => d.driver_id !== id);
     this.notify();
   }
+
+  async assignTruckToDriver(truckId: number, driverId: number | null) {
+    await this.http.post<any>(`/trucks/${truckId}/assign-driver`, {
+      driver_id: driverId // Matches the Go struct tag `json:"driver_id"`
+    });
+    await this.init(); // Refresh local state
+  }
 }
 
 export const db = new DBStore();
