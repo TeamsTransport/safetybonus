@@ -54,46 +54,46 @@ const DriverSetup = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.first_name || !formData.last_name || !formData.driver_code) {
-      alert('Please fill in all required fields.');
-      return;
+const handleSave = async () => {
+  if (!formData.first_name || !formData.last_name || !formData.driver_code) {
+    alert('Please fill in all required fields.');
+    return;
+  }
+
+  try {
+    // 1. Capture the original truck ID and the new selection
+    const oldTruckId = editingDriver?.truck_id || null;
+    const newTruckId = formData.truck_id ? Number(formData.truck_id) : null;
+    
+    // Prepare the driver profile payload
+    const payload = {
+      ...formData,
+      truck_id: newTruckId,
+      driver_type_id: Number(formData.driver_type_id)
+    };
+
+    // 2. Save Driver Profile 
+    let saved: Driver;
+    if (editingDriver) {
+      saved = await db.saveDriver({ ...payload, driver_id: editingDriver.driver_id } as Driver);
+    } else {
+      saved = await db.saveDriver(payload as Driver);
     }
 
-    try {
-      // 1. Prepare payload with correct types
-      const payload = {
-        ...formData,
-        truck_id: formData.truck_id ? Number(formData.truck_id) : null,
-        driver_type_id: Number(formData.driver_type_id)
-      };
-
-      let saved: Driver;
-      if (editingDriver) {
-        // 2. Update existing driver via store
-        saved = await db.saveDriver({ 
-          ...payload, 
-          driver_id: editingDriver.driver_id 
-        } as Driver);
-      } else {
-        // 2. Create new driver via store
-        saved = await db.saveDriver(payload as Driver);
-      }
-
-      // 3. Handle Truck Assignment changes
-      const hasTruckChanged = editingDriver?.truck_id !== payload.truck_id;
-      if (hasTruckChanged) {
-        await db.assignDriverToTruck(saved.driver_id, payload.truck_id);
-      }
-
-      resetForm();
-      (document.getElementById('driver_modal') as any)?.close();
-      
-    } catch (error) {
-      console.error("Save error:", error);
-      alert("Failed to save driver profile. Check console for details.");
+    if (oldTruckId !== newTruckId) {
+      await db.assignDriverToTruck(saved.driver_id, newTruckId);
     }
-  };
+
+    await db.init(); 
+
+    resetForm();
+    (document.getElementById('driver_modal') as any)?.close();
+    
+  } catch (error) {
+    console.error("Save error:", error);
+    alert("Failed to save driver profile. Check console for details.");
+  }
+};
 
   const resetForm = () => {
     setEditingDriver(null);

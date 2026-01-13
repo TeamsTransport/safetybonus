@@ -98,19 +98,23 @@ export class DBStore implements DBStoreState {
         truck_id: truckId
       });
 
+      // Find the driver to see what their OLD truck was
+      const driver = this.drivers.find(d => d.driver_id === driverId);
+      const oldTruckId = driver?.truck_id;
+
       this.trucks = this.trucks.map(t => {
+        // 1. Mark the NEW truck as assigned
         if (truckId && t.truck_id === truckId) {
           return { ...t, status: 'assigned' };
         }
-
-        const driver = this.drivers.find(d => d.driver_id === driverId);
-        if (driver && t.truck_id === driver.truck_id && t.truck_id !== truckId) {
+        // 2. Mark the OLD truck as available again
+        if (oldTruckId && t.truck_id === oldTruckId) {
           return { ...t, status: 'available' };
         }
-
         return t;
       });
 
+      // Update the driver's truck_id locally
       this.drivers = this.drivers.map(d => 
         d.driver_id === driverId ? { ...d, truck_id: truckId } : d
       );
@@ -121,7 +125,7 @@ export class DBStore implements DBStoreState {
     }
   }
 
-async saveDriver(data: Partial<Driver>): Promise<Driver> {
+  async saveDriver(data: Partial<Driver>): Promise<Driver> {
     const isUpdate = !!data.driver_id;
     const path = isUpdate ? `/drivers/${data.driver_id}` : '/drivers';
 
