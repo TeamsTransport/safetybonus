@@ -61,31 +61,37 @@ const DriverSetup = () => {
     }
 
     try {
+      // 1. Prepare payload with correct types
+      const payload = {
+        ...formData,
+        truck_id: formData.truck_id ? Number(formData.truck_id) : null,
+        driver_type_id: Number(formData.driver_type_id)
+      };
+
       let saved: Driver;
       if (editingDriver) {
+        // 2. Update existing driver via store
         saved = await db.saveDriver({ 
-          ...formData, 
+          ...payload, 
           driver_id: editingDriver.driver_id 
         } as Driver);
       } else {
-        saved = await db.saveDriver(formData as Driver);
+        // 2. Create new driver via store
+        saved = await db.saveDriver(payload as Driver);
       }
 
-      const hasTruckChanged = editingDriver?.truck_id !== formData.truck_id;
-      
+      // 3. Handle Truck Assignment changes
+      const hasTruckChanged = editingDriver?.truck_id !== payload.truck_id;
       if (hasTruckChanged) {
-        if (typeof (db as any).assignDriverToTruck === 'function') {
-          await (db as any).assignDriverToTruck(saved.driver_id, formData.truck_id);
-        }
+        await db.assignDriverToTruck(saved.driver_id, payload.truck_id);
       }
 
       resetForm();
-      const modal = document.getElementById('driver_modal') as any;
-      modal?.close();
+      (document.getElementById('driver_modal') as any)?.close();
       
     } catch (error) {
       console.error("Save error:", error);
-      alert("Failed to save driver. Check backend connection.");
+      alert("Failed to save driver profile. Check console for details.");
     }
   };
 
