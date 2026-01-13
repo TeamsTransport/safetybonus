@@ -120,6 +120,42 @@ export class DBStore implements DBStoreState {
       console.error("Assignment failed", err);
     }
   }
+
+async saveDriver(data: Partial<Driver>): Promise<Driver> {
+    const isUpdate = !!data.driver_id;
+    const path = isUpdate ? `/drivers/${data.driver_id}` : '/drivers';
+
+    const savedDriver = await (isUpdate 
+      ? this.http.put<Driver>(path, data) 
+      : this.http.post<Driver>(path, data));
+
+    if (isUpdate) {
+      this.drivers = this.drivers.map(d => 
+        d.driver_id === savedDriver.driver_id ? savedDriver : d
+      );
+    } else {
+      this.drivers = [...this.drivers, savedDriver];
+    }
+
+    this.notify();
+    
+    return savedDriver;
+  }
+
+  async deleteDriver(id: number) {
+    await this.http.delete(`/drivers/${id}`);
+    
+    // Update local state: remove driver and free up their truck
+    const driverToDelete = this.drivers.find(d => d.driver_id === id);
+    if (driverToDelete?.truck_id) {
+      this.trucks = this.trucks.map(t => 
+        t.truck_id === driverToDelete.truck_id ? { ...t, status: 'available' } : t
+      );
+    }
+    
+    this.drivers = this.drivers.filter(d => d.driver_id !== id);
+    this.notify();
+  }
 }
 
 export const db = new DBStore();
