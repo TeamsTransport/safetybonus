@@ -166,6 +166,23 @@ export class DBStore implements DBStoreState {
       console.error("Assignment failed", err);
     }
   }
+ 
+  async saveTruck(data: Partial<Truck>): Promise<Truck> {
+    const isUpdate = !!data.truck_id;
+    const path = isUpdate ? `/trucks/${data.truck_id}` : '/trucks';
+    const savedTruck = await (isUpdate 
+      ? this.http.put<Truck>(path, data) 
+      : this.http.post<Truck>(path, data));
+
+    if (isUpdate) {
+      this.trucks = this.trucks.map(t => t.truck_id === savedTruck.truck_id ? savedTruck : t);
+    } else {
+      this.trucks = [...this.trucks, savedTruck];
+    }
+
+    this.notify(); 
+    return savedTruck;
+  }
 }
 
 export const db = new DBStore();
