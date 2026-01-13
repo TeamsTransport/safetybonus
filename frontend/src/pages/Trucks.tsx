@@ -107,9 +107,9 @@ const Trucks = () => {
   // Handle history lookup locally if not provided by backend endpoint
   const truckHistory = useMemo(() => {
     if (!historyTruck) return [];
-    // If you have a truck_history array in dbStore:
+    // Use historyTruck as the trigger to recalculate the filtered list
     return (db as any).truck_history?.filter((h: any) => h.truck_id === historyTruck.truck_id) || [];
-  }, [historyTruck, storeTick]); // storeTick would be needed if history is dynamic
+  }, [historyTruck]);
 
   return (
     <div className="space-y-6">
