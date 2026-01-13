@@ -157,10 +157,14 @@ export class DBStore implements DBStoreState {
   }
 
   async assignTruckToDriver(truckId: number, driverId: number | null) {
-    await this.http.post<any>(`/trucks/${truckId}/assign-driver`, {
-      driver_id: driverId // Matches the Go struct tag `json:"driver_id"`
-    });
-    await this.init(); // Refresh local state
+    try {
+      await this.http.post<any>(`/trucks/${truckId}/assign-driver`, {
+        driver_id: driverId
+      });
+      await this.init(); 
+    } catch (err) {
+      console.error("Assignment failed", err);
+    }
   }
 }
 
