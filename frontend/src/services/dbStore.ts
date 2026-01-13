@@ -129,20 +129,15 @@ export class DBStore implements DBStoreState {
     const isUpdate = !!data.driver_id;
     const path = isUpdate ? `/drivers/${data.driver_id}` : '/drivers';
 
+    // 1. Perform the API call
     const savedDriver = await (isUpdate 
       ? this.http.put<Driver>(path, data) 
       : this.http.post<Driver>(path, data));
 
-    if (isUpdate) {
-      this.drivers = this.drivers.map(d => 
-        d.driver_id === savedDriver.driver_id ? savedDriver : d
-      );
-    } else {
-      this.drivers = [...this.drivers, savedDriver];
-    }
+    // 2. Refresh everything (trucks, drivers, types) in one shot
+    // This ensures Unit 2544 is now marked as 'assigned' in the local state
+    await this.init(); 
 
-    this.notify();
-    
     return savedDriver;
   }
 
