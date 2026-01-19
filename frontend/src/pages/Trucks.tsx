@@ -95,11 +95,6 @@ const Trucks = () => {
     }
   };
 
-  const truckHistory: TruckHistoryEvent[] = useMemo(() => {
-    if (!historyTruck) return [];
-    return ((db as any).truck_history_by_truck?.[historyTruck.truck_id] ?? []) as TruckHistoryEvent[];
-  }, [historyTruck, trucks]);
-
   // --- 5. Memoized Filtering ---
   const filteredTrucks = useMemo(() => {
     const term = searchTerm.toLowerCase();
