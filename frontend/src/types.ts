@@ -86,3 +86,12 @@ export interface DBStoreState {
   safety_events: SafetyEvent[];
   scorecard_events: ScoreCardEvent[];
 }
+
+export interface TruckHistoryEvent {
+  truck_history_id: number;
+  truck_id: number;
+  driver_id?: number | null;
+  date: string; // RFC3339 string from the API
+  type: 'assignment' | 'status_change' | 'maintenance' | string;
+  notes?: string | null;
+}

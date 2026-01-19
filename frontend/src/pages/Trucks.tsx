@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/dbStore';
-import { Truck, Driver } from '../types';
+import { Truck, Driver, TruckHistoryEvent } from '../types';
 
 const Trucks = () => {
   // --- 1. State Management ---
@@ -40,14 +40,18 @@ const Trucks = () => {
   };
 
   // --- 4. Event Handlers ---
-
   const handleOpenAssignModal = (truck: Truck) => {
     setSelectedTruck(truck);
     (document.getElementById('assign_modal') as any)?.showModal();
   };
 
-  const handleOpenHistoryModal = (truck: Truck) => {
+  const handleOpenHistoryModal = async (truck: Truck) => {
     setHistoryTruck(truck);
+    try {
+      await db.fetchTruckHistory(truck.truck_id); // <-- fetch from API via store
+    } catch (e) {
+      console.error('Failed to load truck history', e);
+    }
     (document.getElementById('history_modal') as any)?.showModal();
   };
 
@@ -90,6 +94,11 @@ const Trucks = () => {
       }
     }
   };
+
+  const truckHistory: TruckHistoryEvent[] = useMemo(() => {
+    if (!historyTruck) return [];
+    return ((db as any).truck_history_by_truck?.[historyTruck.truck_id] ?? []) as TruckHistoryEvent[];
+  }, [historyTruck, trucks]);
 
   // --- 5. Memoized Filtering ---
   const filteredTrucks = useMemo(() => {

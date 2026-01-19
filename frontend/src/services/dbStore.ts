@@ -1,7 +1,7 @@
 import { 
   Truck, Driver, DriverType, SafetyCategory, 
   ScoreCardItem, SafetyEvent, ScoreCardEvent,
-  DBStoreState 
+  DBStoreState, TruckHistoryEvent 
 } from '../types';
 
 type Id = number;
@@ -54,6 +54,7 @@ export class DBStore implements DBStoreState {
   scorecard_metrics: ScoreCardItem[] = [];
   safety_events: SafetyEvent[] = [];
   scorecard_events: ScoreCardEvent[] = [];
+  truck_history_by_truck: Record<number, TruckHistoryEvent[]> = {};
 
   private listeners: Set<Listener> = new Set();
   private http = new HttpClient('http://localhost:8080/api');
@@ -182,6 +183,13 @@ export class DBStore implements DBStoreState {
 
     this.notify(); 
     return savedTruck;
+  }
+
+  async fetchTruckHistory(truckId: number): Promise<TruckHistoryEvent[]> {
+    const events = await this.http.get<TruckHistoryEvent[]>(`/trucks/${truckId}/history`);
+    this.truck_history_by_truck[truckId] = events;
+    this.notify(); // force subscribers to re-render
+    return events;
   }
 }
 
