@@ -1,8 +1,3 @@
-
--- db/init.sql
--- DriverSafetyBonus - MariaDB schema & seed data (idempotent)
--- Normalized to the 'driver_safety' database name.
-
 CREATE DATABASE IF NOT EXISTS driver_safety;
 USE driver_safety;
 
