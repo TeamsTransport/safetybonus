@@ -1,4 +1,3 @@
-// handlers.go
 package main
 
 import (
@@ -19,7 +18,6 @@ const (
 )
 
 // --- helpers ---
-
 func atoi(s string) int {
     i, _ := strconv.Atoi(s)
     return i
@@ -42,7 +40,6 @@ func exec(ctx context.Context, q string, args ...any) (sql.Result, error) {
 }
 
 // --- Bootstrap ---
-
 func bootstrap(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
@@ -216,7 +213,6 @@ func bootstrap(c *gin.Context) {
 }
 
 // --- Drivers ---
-
 func getDrivers(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
@@ -375,7 +371,6 @@ func getDriverStats(c *gin.Context) {
 }
 
 // --- Driver Types ---
-
 func getDriverTypes(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
@@ -450,7 +445,6 @@ func deleteDriverType(c *gin.Context) {
 }
 
 // --- Trucks & Assignment ---
-
 func getTrucks(c *gin.Context) {
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
     defer cancel()
@@ -671,7 +665,6 @@ func assignTruckToDriver(c *gin.Context) {
 }
 
 // --- Truck history ---
-
 func getTruckHistory(c *gin.Context) {
     truckID := c.Param("id")
     ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
